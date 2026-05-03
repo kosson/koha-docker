@@ -14,6 +14,7 @@ E2	~~Security not initialized on os01 at first boot~~ **FIXED** (+ 2.15→3.6 co
 E3	`.opendistro_security` index missing on os02–os05 at startup	Transient
 E4	~~`SettingsException: unknown setting [opensearch_security.compliance.salt]`~~ **FIXED** (renamed to `plugins.security.*` in 3.x)	Critical
 E5	~~Cluster formation failure — os01 dual-network transport address split~~ **FIXED** (removed `knonikl` from os01 networks)	Critical
+E6	~~`OpenSearchSecurityPlugin` fails to load — `/usr/share/opensearch/config/root-ca.pem is a directory`~~ **FIXED** (2026-05-03)	Critical
 
 Warnings
 
@@ -964,3 +965,50 @@ is logged as `null`. The dashboards container probes `https://os01:9200/` every 
 200 response from `/_cat/nodes` with valid credentials. Dashboards won't start connecting
 until that point, so it never hits the BackendRegistry while the authenticators are absent.
 The `null` auth failures no longer appear.
+
+---
+
+### E6 — SecurityPlugin fails to load — `root-ca.pem is a directory` (all nodes)
+**Status:** `[x]` fixed — 2026-05-03
+
+**Log:**
+
+```
+org.opensearch.bootstrap.StartupException: java.lang.IllegalStateException:
+  failed to load plugin class [org.opensearch.security.OpenSearchSecurityPlugin]
+Caused by: org.opensearch.OpenSearchException:
+  /usr/share/opensearch/config/root-ca.pem - is a directory
+```
+
+**Cause:** The certificate files in `assets/ssl/` were missing (had never been generated).
+When Docker bind-mounts a host path that does not exist, it auto-creates an empty
+**directory** at that path. The Security plugin then tried to read `root-ca.pem` as a PEM
+file and immediately failed because it was a directory, not a file. This affected every
+node because all of them mount `root-ca.pem`, `root-ca-key.pem`, `admin.pem`, and their
+own node cert from `assets/ssl/`.
+
+**Root cause chain:**
+
+1. `opensearch_local_certificates_creator.sh` had not been run before `docker compose up`.
+2. Docker created empty directories for every missing bind-mount source.
+3. The Security SSL loader threw `is a directory` instead of `file not found`, masking the
+   real missing-cert cause.
+
+**Fix applied (2026-05-03):**
+
+1. Stopped all containers: `docker compose down`
+2. Removed the root-owned empty stub directories:
+   ```
+   sudo rm -rf assets/ssl/root-ca.pem assets/ssl/root-ca-key.pem \
+               assets/ssl/admin.pem assets/ssl/admin-key.pem \
+               assets/ssl/os{01..05}.pem assets/ssl/os{01..05}-key.pem
+   sudo chown -R nicolaie:nicolaie assets/ssl/
+   ```
+3. Generated all TLS certificates:
+   ```
+   bash opensearch_local_certificates_creator.sh
+   ```
+4. Restarted: `docker compose up -d` — all nodes came up healthy.
+
+**Prevention:** Always run `opensearch_local_certificates_creator.sh` before the first `docker compose up` on a fresh clone or after `restart-to-clear-cluster.sh`.
+The script also updates the compliance salt and SQL master key in all `opensearch.yml` files so those settings stay in sync with the newly generated certs.

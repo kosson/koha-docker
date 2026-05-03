@@ -10,6 +10,9 @@ OpenSearch-3.6/assets/ssl/*.pem
 OpenSearch-3.6/assets/ssl/*.key
 OpenSearch-3.6/assets/ssl/*.crt
 
+# OpenSearch node data directories (runtime, not versioned)
+OpenSearch-3.6/assets/opensearch/data/
+
 # Editor / OS noise
 .DS_Store
 *.swp

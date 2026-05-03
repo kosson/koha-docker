@@ -1,6 +1,6 @@
 # Koha Docker containers
 
-This is a setup of Docker containers created to work with the latest Koha ILS, Koha 25.12.00.
+This is a setup of Docker containers created to work with the latest Koha ILS, Koha 25.12.00. It was created on Ubuntu 25.10 Linux/GNU distribution.
 
 A self-contained Docker Compose environment for **Koha ILS** development, backed by **MariaDB 10.11** and an external **OpenSearch 3.6** cluster.
 
@@ -62,7 +62,7 @@ Critical values to verify:
 | Variable | Default | Description |
 |---|---|---|
 | `LOCAL_USER_ID` | `1000` | Must match the UID that owns the `koha/` source directory on the host |
-| `SYNC_REPO` | `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha` | **Absolute path on the host** to the Koha source tree |
+| `SYNC_REPO` | `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha` | **Absolute path on the host** to the Koha source tree. This is how it looked on build time |
 | `KOHA_INSTANCE` | `kohadev` | Name of the Koha instance created inside the container |
 
 ### Domain and ports
@@ -126,11 +126,39 @@ OPENSEARCH_INITIAL_ADMIN_PASSWORD="test@Cici24#ANA"
 
 The admin password must match `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `koha-docker/env/.env`.
 
+## Preheating the OpenSearch cluster
+
+First, make sure all the existing ssl local signed certificates are deleted. If there are any, delete them. Start fresh:
+
+```bash
+rm -rf assets/ssl/root-ca.pem assets/ssl/root-ca-key.pem assets/ssl/admin.pem assets/ssl/admin-key.pem assets/ssl/os01.pem assets/ssl/os01-key.pem assets/ssl/os02.pem assets/ssl/os02-key.pem assets/ssl/os03.pem assets/ssl/os03-key.pem assets/ssl/os04.pem assets/ssl/os04-key.pem assets/ssl/os05.pem assets/ssl/os05-key.pem && ls -la assets/ssl/
+```
+
+Now, for every subfolder `OpenSearch-3.6./assets/opensearch/config/os01` ... to `os05` you have a configuration file named `opensearch.yml`. All of them have the exact same hard coded settings for the `plugins.security.nodes_dn` option. Modify them for your environment. These are only for test and development builds localized to the creator of this project. You should use it as is only to test. Modify it to adapt it to your institution. Also, the `plugins.security.compliance.salt` and `plugins.query.datasources.encryption.masterkey` values will be re-generated every time you run `bash opensearch_local_certificates_creator.sh`, which you should prior to starting the rest of the containers using `stack.sh` script.
+
+```yml
+plugins.security.nodes_dn:
+  - 'CN=os01,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os02,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os03,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os04,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os05,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=dashboards,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+http.detailed_errors.enabled: true
+# W2: compliance field-masking salt (must be identical on all nodes)
+plugins.security.compliance.salt: "UWmXM8FaLNOAO4gh"
+# W3: SQL plugin datasource encryption master key
+plugins.query.datasources.encryption.masterkey: "f9395c8cfea06da564aa041577c7e3c9"
+```
+
+Always run `opensearch_local_certificates_creator.sh` in the OpenSearch-3.6 folder before the first `docker compose up` on a fresh clone or after `restart-to-clear-cluster.sh`.
+The script also updates the compliance salt and SQL master key in all `opensearch.yml` files so those settings stay in sync with the newly generated certs.
+
 ---
 
-## Automated startup — `stack.sh`
+## Automated startup using `stack.sh` script
 
-`stack.sh` in the project root handles the entire lifecycle. It wraps all five manual steps below into single commands, waits for health checks between stages, and prints a summary box with URLs and credentials when the stack is ready.
+The script `stack.sh` in the project root handles the entire lifecycle. It wraps all five manual steps below into single commands, waits for health checks between stages, and prints a summary box with URLs and credentials when the stack is ready.
 
 ```bash
 # First run — build both image sets, then start everything
