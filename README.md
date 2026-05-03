@@ -62,8 +62,10 @@ Critical values to verify:
 | Variable | Default | Description |
 |---|---|---|
 | `LOCAL_USER_ID` | `1000` | Must match the UID that owns the `koha/` source directory on the host |
-| `SYNC_REPO` | `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha` | **Absolute path on the host** to the Koha source tree. This is how it looked on build time |
+| `SYNC_REPO` | `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha` | **Absolute path on the host** to the Koha source tree. This is how it looked on build time. Modify to reflect your system and where you have cloned the project.|
 | `KOHA_INSTANCE` | `kohadev` | Name of the Koha instance created inside the container |
+
+Remember to modify `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha`. It should be adapted to where you put the project on your system.
 
 ### Domain and ports
 
@@ -268,8 +270,7 @@ Without the plugin, any attempt to create the Koha search indexes fails immediat
 Custom Analyzer [icu_folding_normalizer] failed to find filter under name [icu_folding]
 ```
 
-The plugin is installed into the custom `Dockerfile` under
-`OpenSearch-3.6/assets/opensearch/Dockerfile`:
+The plugin is installed into the custom `Dockerfile` under `OpenSearch-3.6/assets/opensearch/Dockerfile`:
 
 ```dockerfile
 USER opensearch
