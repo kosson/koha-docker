@@ -10,16 +10,19 @@ opensearchDashboards.index: ".kibana"
 opensearch.requestHeadersAllowlist: [ authorization ]
 opensearch_security.readonly_mode.roles: ["opensearch_dashboards_read_only"]
 # https://opensearch.org/docs/latest/install-and-configure/install-dashboards/tls/
-server.ssl.clientAuthentication: optional
-server.ssl.enabled: true
-server.ssl.certificate: /usr/share/opensearch-dashboards/config/dashboards.pem
-server.ssl.key: /usr/share/opensearch-dashboards/config/dashboards-key.pem
+# Server-side TLS is disabled so Traefik can proxy plain HTTP to this container.
+# The Dashboards → OpenSearch backend connection still uses mutual TLS (see below).
+server.ssl.enabled: false
+# server.ssl.clientAuthentication: optional
+# server.ssl.certificate: /usr/share/opensearch-dashboards/config/dashboards.pem
+# server.ssl.key: /usr/share/opensearch-dashboards/config/dashboards-key.pem
 # opensearch.ssl.verificationMode: full
 opensearch.ssl.alwaysPresentCertificate: true
 opensearch.ssl.certificate: /usr/share/opensearch-dashboards/config/admin.pem
 opensearch.ssl.key: /usr/share/opensearch-dashboards/config/admin-key.pem
 opensearch.ssl.certificateAuthorities: [ "/usr/share/opensearch-dashboards/config/root-ca.pem" ]
-opensearch_security.cookie.secure: true
+# Must be false when the browser connects over plain HTTP (no HTTPS from Traefik)
+opensearch_security.cookie.secure: false
 # Set the value to true to enable multiple data source feature
 data_source.enabled: true
 # Set the value to true to enable workspace feature

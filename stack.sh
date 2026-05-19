@@ -247,6 +247,34 @@ stop_support_services() {
   ok "Support services stopped."
 }
 
+reset_all() {
+  warn "This will stop ALL containers, remove them, and delete ALL named volumes."
+  warn "Database data, OpenSearch indices, and Traefik state will be permanently lost."
+  warn "Docker images will be preserved."
+  echo ""
+  read -rp "Type 'yes' to confirm: " answer
+  if [[ "${answer}" != "yes" ]]; then
+    log "Reset cancelled."
+    return 0
+  fi
+
+  hdr "Removing Koha containers and volumes"
+  koha_compose down --volumes 2>/dev/null || true
+  ok "Koha stack removed."
+
+  hdr "Removing OpenSearch containers and volumes"
+  os_compose down --volumes 2>/dev/null || true
+  ok "OpenSearch stack removed."
+
+  hdr "Removing Traefik containers"
+  # Traefik has no named volumes; --volumes is a no-op but included for consistency.
+  traefik_compose down --volumes 2>/dev/null || true
+  ok "Traefik removed."
+
+  echo ""
+  ok "Reset complete. All containers and volumes removed. Images are intact."
+}
+
 # ---------------------------------------------------------------------------
 # Koha container
 # ---------------------------------------------------------------------------
@@ -340,6 +368,8 @@ ${BOLD}Commands:${RESET}
   stop        Stop all services (OpenSearch + Koha stack)
   restart     Quick restart: reset DB + recreate Koha container only
               (skips OpenSearch restart — use when OS is already running)
+  reset       Stop everything, remove all containers and named volumes
+              (requires confirmation; images are preserved)
   status      Show running containers and OpenSearch cluster health
   logs        Tail Koha container logs
   build       Build images without starting anything
@@ -364,6 +394,7 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") restart                  # Quick restart (DB reset + koha only)
   $(basename "$0") restart --no-demo-data   # Quick restart, clean catalogue
   $(basename "$0") stop                     # Stop everything
+  $(basename "$0") reset                    # Nuclear reset: remove all containers + volumes
   $(basename "$0") status                   # Check what's running
   $(basename "$0") logs                     # Attach to Koha logs
   $(basename "$0") build --build-opensearch # Build OS images only
@@ -387,7 +418,7 @@ LOAD_DEMO_DATA="$(_env_val "${KOHA_ENV_FILE}" LOAD_DEMO_DATA yes)"
 # Parse command (first positional arg)
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    start|stop|restart|status|logs|build) COMMAND="$1"; shift ;;
+    start|stop|restart|reset|status|logs|build) COMMAND="$1"; shift ;;
     --help|-h) usage; exit 0 ;;
     --*) : ;;  # no subcommand given, use default "start"
     *) die "Unknown command: '$1'. Run '$(basename "$0") --help' for usage." ;;
@@ -444,6 +475,10 @@ case "${COMMAND}" in
     stop_opensearch
     stop_traefik
     ok "All services stopped."
+    ;;
+
+  reset)
+    reset_all
     ;;
 
   restart)

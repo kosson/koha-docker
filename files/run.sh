@@ -1,4 +1,9 @@
 #!/bin/bash
+# run.sh — Koha container entrypoint.
+# NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files/run.sh).
+# Editing this file on the host has NO effect until the image is rebuilt:
+#   ./stack.sh start -b   (or docker compose build)
+# RUN_SH_VERSION=2026-05-15
 
 set -e
 
@@ -350,6 +355,75 @@ if [ "${LOAD_DEMO_DATA:-yes}" = "no" ]; then
     chmod +x ${BUILD_DIR}/misc4dev/insert_data.pl
 fi
 
+if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
+    echo "[elasticsearch] Waiting for OpenSearch endpoint from Koha container..."
+
+    # Determine which CA cert to use for TLS verification.
+    _os_cacert_args=()
+    if [ -s "/kohadevbox/opensearch-root-ca.pem" ]; then
+        _os_cacert_args=(--cacert "/kohadevbox/opensearch-root-ca.pem")
+        echo "[elasticsearch] Using root-ca at /kohadevbox/opensearch-root-ca.pem"
+    else
+        _os_cacert_args=(-k)
+        echo "[elasticsearch] WARNING: opensearch-root-ca.pem not found, skipping TLS verification"
+    fi
+
+    os_wait_ok="no"
+    for attempt in $(seq 1 60); do
+        # Quick TCP reachability check before attempting the full HTTPS request.
+        if ! nc -z -w 3 os01 9200 2>/dev/null; then
+            echo "[elasticsearch] attempt ${attempt}/60: TCP port os01:9200 not reachable"
+            sleep 5
+            continue
+        fi
+
+        os_response=$(curl -s "${_os_cacert_args[@]}" \
+            --connect-timeout 5 --max-time 10 \
+            -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            "https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=5s" 2>&1)
+
+        os_http_code=$(echo "${os_response}" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
+        os_status=$(echo "${os_response}" \
+            | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' \
+            | head -n 1)
+
+        if [ "${os_status}" = "yellow" ] || [ "${os_status}" = "green" ]; then
+            os_wait_ok="yes"
+            echo "[elasticsearch] OpenSearch is ${os_status}."
+            break
+        fi
+
+        echo "[elasticsearch] attempt ${attempt}/60: OpenSearch not ready yet (HTTP ${os_http_code:-no-response})"
+        if [ "${attempt}" = "1" ] || [ $((attempt % 10)) -eq 0 ]; then
+            echo "[elasticsearch] Last response: $(echo "${os_response}" | grep -v 'HTTP_STATUS' | head -c 300)"
+        fi
+        sleep 5
+    done
+
+    if [ "${os_wait_ok}" != "yes" ]; then
+        echo "[elasticsearch] OpenSearch did not become ready in time."
+        exit 1
+    fi
+fi
+
+# koha-rebuild-zebra executes migration_tools scripts directly.  Normalize
+# any CRLF in those scripts before do_all_you_can_do.pl (cross-platform safety).
+find "${BUILD_DIR}/koha/misc/migration_tools" -type f -name '*.pl' \
+    -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+
+if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
+    # misc4dev still forces a Zebra rebuild after successful ES indexing.
+    # On recent datasets this can fail on malformed legacy MARCXML and abort
+    # container startup, even though Elasticsearch setup already completed.
+    sed -i 's|\$cmd = "sudo koha-rebuild-zebra -f -v \$instance";|say "Skipping koha-rebuild-zebra in Elasticsearch mode";\n\$cmd = "true";|' \
+        "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+
+    # Keep Elasticsearch rebuild but run it with reduced noise in startup logs.
+    sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr|"\
+        "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+fi
+
 perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
             --instance          ${KOHA_INSTANCE} ${ES_FLAG} ${USE_EXISTING_DB_FLAG} \
             --userid            ${KOHA_USER} \
@@ -362,6 +436,12 @@ perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
 
 # Stop apache2
 service apache2 stop
+
+# Apache CGI execution fails with "No such file or directory" when Perl scripts
+# carry CRLF shebangs (cross-platform repos). Normalize key web entry points
+# after setup steps and before starting services.
+find "${BUILD_DIR}/koha" -type f \( -name '*.pl' -o -name '*.cgi' \) \
+        -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 
 echo "[logs] Chowning logs"
 chown -R "${KOHA_INSTANCE}-koha:${KOHA_INSTANCE}-koha" "/var/log/koha/${KOHA_INSTANCE}" \
@@ -400,9 +480,15 @@ if [ "${ENABLE_PLUGINS}" = "yes" ]; then
 fi
 
 # Enable and start koha-plack and koha-z3950-responder
-koha-plack           --enable ${KOHA_INSTANCE}
-koha-z3950-responder --enable ${KOHA_INSTANCE}
-service koha-common start
+if ! koha-plack --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
+    echo "[INFO] koha-plack not enabled in this profile; continuing with Apache CGI mode"
+fi
+
+if ! koha-z3950-responder --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
+    echo "[INFO] koha-z3950-responder enable skipped; continuing"
+fi
+
+service koha-common start 2>&1 | grep -v "you must provide at least one instance name" || true
 
 # Start apache and rabbitmq-server
 service apache2 start
