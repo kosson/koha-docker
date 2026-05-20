@@ -1,10 +1,15 @@
 # Koha Docker containers
 
-This is a setup of Docker containers created to work with the latest Koha ILS, Koha 25.12.00.
+This is a setup of Docker containers created to work with the latest Koha ILS, Koha 25.12.00. Some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker). All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file.
+Use the source code as is. Remember this is a development project to experiment with Koha, to migrate data, etc. This is not a production suite.
 
-A self-contained Docker Compose environment for **Koha ILS** development, backed by **MariaDB 10.11** and an external **OpenSearch 3.6** cluster.
+This setup creates a self-contained Docker Compose environment for **Koha ILS** development, backed by **MariaDB 10.11** and an external **OpenSearch 3.6** cluster.
 
----
+You need to have a fairly well endowed computer to run these services. All the final product will need around 12Gb of RAM to run comfortably. The RAM of your computer needs to be at least 22Gb, which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection.
+
+## Scope
+
+Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the version is Koha 25.12.00. Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing engine (OpenSearch), and a proxy for accessing the installation in the browser (Traefik).
 
 ## Repository layout
 
@@ -32,69 +37,6 @@ koha-docker/
 
 ---
 
-## One-time setup — OpenSearch TLS certificates
-
-The OpenSearch cluster requires mutual TLS between all nodes, the admin client, and the Dashboards container. The necessary certificates are **pre-generated and committed** to the repository under `OpenSearch-3.6/assets/ssl/`:
-
-```
-root-ca.pem / root-ca-key.pem      ← self-signed root CA
-admin.pem   / admin-key.pem        ← admin client cert (used by securityadmin.sh)
-os01–os05.pem / os01–os05-key.pem  ← per-node transport + HTTP certs
-client.pem  / dashboards.pem …     ← client and Dashboards certs
-```
-
-These files are mounted into each container at startup — **no certificate generation happens during `stack.sh start` or `docker compose up`**.
-
-### When to regenerate
-
-The certificates are valid for **730 days (2 years)** from the date they were first created. You also need to regenerate them if:
-
-- you are setting up the project on a new machine with a different hostname or organisation
-- the existing certs have expired and OpenSearch refuses to start
-- you ran `./stack.sh reset` and want a genuinely fresh cluster
-
-### How to regenerate
-
-> **Warning:** regenerating certificates also regenerates the **compliance salt** and **SQL datasource master key** written into each node’s `opensearch.yml`. Any encrypted datasource credentials stored in an existing cluster become unreadable. Only do this on a fresh or fully-reset cluster.
-
-```bash
-cd koha-docker/OpenSearch-3.6
-
-# Optional: edit subject fields (country, org, etc.) before running
-# nano opensearch_installer_vars.cfg
-
-sudo bash opensearch_local_certificates_creator.sh
-```
-
-The script will:
-
-1. Create `assets/ssl/root-ca-key.pem` + `root-ca.pem` (self-signed root CA, 2048-bit RSA, SHA-256, 730-day validity)
-2. Create `admin.pem` / `admin-key.pem` (PKCS8, signed by the root CA)
-3. Create per-node certs for `os01`–`os05`, `client`, and `dashboards` — each with a `subjectAltName=DNS:<nodename>` extension so TLS hostname verification passes
-4. Generate a fresh random **compliance salt** (16-char alphanumeric) and **SQL master key** (16-byte hex) and write them into every `assets/opensearch/config/os*/opensearch.yml`
-5. Set strict file permissions: `600` on all `.pem` files, `700` on config directories, `600` on config files
-
-After regenerating, rebuild the OpenSearch images (they bake the certs in) and do a full restart:
-
-```bash
-./stack.sh start --build-opensearch
-```
-
-### Certificate subject configuration
-
-The subject DN and output paths are defined in `OpenSearch-3.6/opensearch_installer_vars.cfg`:
-
-```bash
-CERT_DN="/C=RO/ST=ILFOV/L=MAGURELE/O=NIPNE/OU=DFCTI"
-LOCAL_ROOT_CA="localrootca"
-ADMIN_CA="admin"
-OS_CERTS_PATH="./assets/ssl"
-```
-
-Change `CERT_DN` to match your organisation before running the script on a new deployment.
-
----
-
 ## Prerequisites
 
 | Requirement | Version | Notes |
@@ -114,6 +56,86 @@ git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
 ```
 
 The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match.
+
+---
+
+## Quick setup
+
+Everything you need to go from a fresh clone to a running Koha stack. Each step links to the relevant section for full details.
+
+### 1. Verify prerequisites
+
+Docker Engine 24+ and Docker Compose v2.20+ must be installed. Your host user must have **UID 1000** (the bind-mounted Koha source directory must be owned by that UID).
+First, go to the [Prerequisites](#prerequisites) section and read it carefully.
+
+### 2. Clone the Koha source tree
+
+```bash
+cd koha-docker
+git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
+```
+
+Take a look at the [Koha source tree](#koha-source-tree) to get aquainted to the structure of Koha.
+
+### 3. Configure `env/.env`
+
+Open `env/.env` and update **at minimum** these two values:
+
+| Variable | What to change |
+|---|---|
+| `SYNC_REPO` | Set to the **absolute path** on your host to the `koha/` directory cloned above — e.g. `/home/youruser/koha-docker/koha` |
+| `KOHA_DOMAIN` | Change to `.<ip>.nip.io` for zero-config portable DNS — the simplest choice is `.127.0.0.1.nip.io`, which makes the OPAC reachable at `http://kohadev.127.0.0.1.nip.io` with no `/etc/hosts` edits |
+
+Everything else has workable defaults. See [Initial configuration](#initial-configuration).
+
+> **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
+> `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
+
+### 4. Start the stack
+
+**First run** — builds the `kosson/opensearch-icu` and `kosson/koha-ubuntu` images, then starts all services:
+
+```bash
+./stack.sh start --build
+```
+
+If you run into this little bug, just run again the command. The error:
+
+```txt
+─ Recreating Koha database ──
+[10:20:32] Dropping and recreating 'koha_kohadev'...
+ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)
+```
+
+**Every subsequent run** — images are already in the local cache:
+
+```bash
+./stack.sh start
+```
+
+`stack.sh` waits for each service health check before proceeding and tails the logs automatically. Startup takes **3–8 minutes** on first run depending on hardware. When Koha is ready, a summary box is printed with all URLs and credentials.
+
+Look into the structure of the management script: [Automated startup — `stack.sh`](#automated-startup----stacksh)
+
+### 5. Open Koha in the browser
+
+With `KOHA_DOMAIN=.127.0.0.1.nip.io` (the recommended quick-start value):
+
+| Service | URL | Credentials |
+|---|---|---|
+| OPAC (public catalogue) | http://kohadev.127.0.0.1.nip.io | — (public) |
+| Staff interface | http://kohadev-intra.127.0.0.1.nip.io | `koha` / `koha` |
+| OpenSearch Dashboards | http://dashboards.localhost | `admin` / *see `env/.env`* |
+| Traefik dashboard | http://localhost:8083 | — |
+| OpenSearch REST API | https://localhost:9200 | `admin` / *see `env/.env`* |
+
+Look into the section [Accessing the stack](#accessing-the-stack).
+
+### TLS certificates (existing commit — no action needed)
+
+The OpenSearch cluster certificates are **pre-generated and committed** to the repository. A fresh clone is ready to use them immediately. You only need to regenerate certificates if you are deploying to a different organisation or the certs have expired.
+
+Generate the certificates details section: [One-time setup — OpenSearch TLS certificates](#one-time-setup--opensearch-tls-certificates).
 
 ---
 
@@ -222,6 +244,65 @@ OPENSEARCH_INITIAL_ADMIN_PASSWORD="test@Cici24#ANA"
 
 The admin password must match `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `koha-docker/env/.env`.
 
+The OpenSearch cluster requires mutual TLS between all nodes, the admin client, and the Dashboards container. The necessary certificates are **pre-generated and committed** to the repository under `OpenSearch-3.6/assets/ssl/`:
+
+```
+root-ca.pem / root-ca-key.pem      ← self-signed root CA
+admin.pem   / admin-key.pem        ← admin client cert (used by securityadmin.sh)
+os01–os05.pem / os01–os05-key.pem  ← per-node transport + HTTP certs
+client.pem  / dashboards.pem …     ← client and Dashboards certs
+```
+
+These files are mounted into each container at startup — **no certificate generation happens during `stack.sh start` or `docker compose up`**.
+
+### When to regenerate
+
+The certificates are valid for **730 days (2 years)** from the date they were first created. You also need to regenerate them if:
+
+- you are setting up the project on a new machine with a different hostname or organisation
+- the existing certs have expired and OpenSearch refuses to start
+- you ran `./stack.sh reset` and want a genuinely fresh cluster
+
+### How to regenerate
+
+> **Warning:** regenerating certificates also regenerates the **compliance salt** and **SQL datasource master key** written into each node’s `opensearch.yml`. Any encrypted datasource credentials stored in an existing cluster become unreadable. Only do this on a fresh or fully-reset cluster.
+
+```bash
+cd koha-docker/OpenSearch-3.6
+
+# Optional: edit subject fields (country, org, etc.) before running
+# nano opensearch_installer_vars.cfg
+
+sudo bash opensearch_local_certificates_creator.sh
+```
+
+The script will:
+
+1. Create `assets/ssl/root-ca-key.pem` + `root-ca.pem` (self-signed root CA, 2048-bit RSA, SHA-256, 730-day validity)
+2. Create `admin.pem` / `admin-key.pem` (PKCS8, signed by the root CA)
+3. Create per-node certs for `os01`–`os05`, `client`, and `dashboards` — each with a `subjectAltName=DNS:<nodename>` extension so TLS hostname verification passes
+4. Generate a fresh random **compliance salt** (16-char alphanumeric) and **SQL master key** (16-byte hex) and write them into every `assets/opensearch/config/os*/opensearch.yml`
+5. Set strict file permissions: `600` on all `.pem` files, `700` on config directories, `600` on config files
+
+After regenerating, rebuild the OpenSearch images (they bake the certs in) and do a full restart:
+
+```bash
+./stack.sh start --build-opensearch
+```
+
+### Certificate subject configuration
+
+The subject DN and output paths are defined in `OpenSearch-3.6/opensearch_installer_vars.cfg`:
+
+```bash
+CERT_DN="/C=RO/ST=ILFOV/L=MAGURELE/O=NIPNE/OU=DFCTI"
+LOCAL_ROOT_CA="localrootca"
+ADMIN_CA="admin"
+OS_CERTS_PATH="./assets/ssl"
+```
+
+Change `CERT_DN` to match your organisation before running the script on a new deployment.
+
 ---
 
 ## Automated startup — `stack.sh`
@@ -262,7 +343,7 @@ The admin password must match `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `koha-docke
 | Flag | Effect |
 |---|---|
 | `--build` | Rebuild both OpenSearch and Koha images before starting |
-| `--build-opensearch` | Rebuild only the OpenSearch images (5 nodes + analysis-icu) |
+| `--build-opensearch` | Rebuild the single `kosson/opensearch-icu` image (analysis-icu plugin) |
 | `--build-koha` | Rebuild only the Koha dev container image |
 
 > **Important:** `files/run.sh` is copied into the Docker image at build time — it is **not** mounted at runtime. Any change to `run.sh` (including `KOHA_PUBLIC_PORT` or `LOAD_DEMO_DATA` logic) takes effect only after rebuilding with `./stack.sh start --build-koha`.
@@ -347,14 +428,16 @@ The three components must be started **in this order**. The `koha-docker` compos
 
 ---
 
-### Step 1 — Build the OpenSearch images (first time, or after Dockerfile changes)
+### Step 1 — Build the OpenSearch image (first time, or after Dockerfile changes)
 
 ```bash
 cd koha-docker/OpenSearch-3.6
-docker compose build
+docker compose build os01
 ```
 
-This builds a custom image for all five nodes with the `analysis-icu` plugin installed.
+This builds a single custom image (`kosson/opensearch-icu`) with the `analysis-icu` plugin installed.
+All five cluster nodes share this image — `os01` owns the `build:` block and tags the result;
+`os02`–`os05` reference the same tag via `image:` with `pull_policy: never`.
 
 #### What `analysis-icu` is and why Koha needs it
 
@@ -370,13 +453,12 @@ Koha's Elasticsearch index configuration (`koha/etc/searchengine/elasticsearch/`
 
 Without the plugin, any attempt to create the Koha search indexes fails immediately with:
 
-```
+```txt
 [400] [illegal_argument_exception]
 Custom Analyzer [icu_folding_normalizer] failed to find filter under name [icu_folding]
 ```
 
-The plugin is installed into the custom `Dockerfile` under
-`OpenSearch-3.6/assets/opensearch/Dockerfile`:
+The plugin is installed into the custom `Dockerfile` under `OpenSearch-3.6/assets/opensearch/Dockerfile`:
 
 ```dockerfile
 USER opensearch
@@ -386,7 +468,7 @@ USER root
 
 It is installed as the `opensearch` user (not `root`) because the plugin directory `/usr/share/opensearch/plugins/` is owned by that user in the base image.
 
-All five nodes (`os01`–`os05`) must have the plugin — OpenSearch requires uniform plugin installation across all cluster nodes that hold index shards. The `docker-compose.yml` therefore uses `build:` (not `image:`) for every node.
+All five nodes (`os01`–`os05`) must run the same image — OpenSearch requires uniform plugin installation across all cluster nodes that hold index shards. The `docker-compose.yml` builds the image once (via the `os01` service) and the other four nodes reference it by name.
 
 Skip this step on subsequent runs if the Dockerfile has not changed.
 

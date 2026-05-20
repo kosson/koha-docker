@@ -14,14 +14,10 @@ Simplify `koha-docker` for a single target platform (Ubuntu 24.04 Noble) by elim
 The original Dockerfile was assembled from two sources:
 
 1. A first `FROM ubuntu:24.04` block (maintainer: kosson) that called `install-packages all`
-   — a Perl script that read `package-config.yaml`, resolved distro-specific overrides at
-   runtime, and then ran `apt-get install`.
-2. A second `FROM ubuntu:24.04` block (copied from `koha-testing-docker` as reference,
-   maintainer: tomascohen) that called `install-packages <group>` once per package group.
+   — a Perl script that read `package-config.yaml`, resolved distro-specific overrides at runtime, and then ran `apt-get install`.
+2. A second `FROM ubuntu:24.04` block (copied from `koha-testing-docker` as reference, maintainer: tomascohen) that called `install-packages <group>` once per package group.
 
-Because Docker only executes the **last** `FROM` stage, the first block was silently ignored.
-Both blocks still depended on the scripting layer.
-
+Because Docker only executes the **last** `FROM` stage, the first block was silently ignored. Both blocks still depended on the scripting layer.
 The `package-config.yaml` defines a `distro_specific.noble` section with Cypress overrides for Ubuntu 24.04:
 
 ```yaml
@@ -178,9 +174,7 @@ The critical line in `run.sh` is:
 VARS_TO_SUB=`cut -d '=' -f1 ${BUILD_DIR}/templates/defaults.env | tr '\n' ':' | ...`
 ```
 
-It reads only the **left-hand side** of each `VAR=value` entry in `defaults.env` to build the `$VAR1:$VAR2:...` string that `envsubst` uses to know which placeholders to expand in
-the template files (`koha-conf-site.xml.in`, `koha-sites.conf`, `apache2_envvars`, etc.).
-
+It reads only the **left-hand side** of each `VAR=value` entry in `defaults.env` to build the `$VAR1:$VAR2:...` string that `envsubst` uses to know which placeholders to expand in the template files (`koha-conf-site.xml.in`, `koha-sites.conf`, `apache2_envvars`, etc.).
 Without `defaults.env` inside the container, `envsubst` would receive no variable list and all `${VAR}` placeholders in the generated config files would remain unexpanded.
 
 ---
@@ -376,8 +370,7 @@ koha-1 exited with code 255
 
 #### Error 1 — "worker not running for kohadev" (cosmetic, non-fatal)
 
-**Source**: `koha-create --request-db kohadev` (called in `run.sh`) internally calls
-`service koha-common restart` after writing config files. At that point, no database
+**Source**: `koha-create --request-db kohadev` (called in `run.sh`) internally calls `service koha-common restart` after writing config files. At that point, no database
 exists yet, so the Koha background worker cannot start.
 
 **Impact**: Informational only. `koha-create` exits with code 0; `run.sh` continues.
@@ -387,16 +380,14 @@ The database is populated later by `do_all_you_can_do.pl`.
 
 #### Error 2 — All `Permission denied` errors on `/kohadevbox/koha/...` (fatal)
 
-**Root cause**: `ubuntu:24.04` ships with a pre-created system user `ubuntu` at **UID 1000**
-(added to Ubuntu cloud/container images starting with Ubuntu 23.10). This is confirmed by:
+**Root cause**: `ubuntu:24.04` ships with a pre-created system user `ubuntu` at **UID 1000** (added to Ubuntu cloud/container images starting with Ubuntu 23.10). This is confirmed by:
 
 ```
 $ docker run --rm ubuntu:24.04 id ubuntu
 uid=1000(ubuntu) gid=1000(ubuntu) groups=1000(ubuntu),4(adm),...
 ```
 
-When `koha-create` runs inside the container it calls `adduser` to create the instance
-user `kohadev-koha`. Because UID 1000 is already taken by `ubuntu`, `kohadev-koha` is
+When `koha-create` runs inside the container it calls `adduser` to create the instance user `kohadev-koha`. Because UID 1000 is already taken by `ubuntu`, `kohadev-koha` is
 assigned **UID 1001**.
 
 `run.sh` contains this guard:
@@ -407,21 +398,17 @@ if [[ ! -z "${LOCAL_USER_ID}" && "${LOCAL_USER_ID}" != "1000" ]]; then
 fi
 ```
 
-Since `LOCAL_USER_ID=1000`, the condition `!= "1000"` is **false** and `usermod` is
-skipped. `kohadev-koha` remains at UID 1001.
-
+Since `LOCAL_USER_ID=1000`, the condition `!= "1000"` is **false** and `usermod` is skipped. `kohadev-koha` remains at UID 1001.
 The Koha source directory is mounted from the host:
 
 ```
 ${SYNC_REPO}:/kohadevbox/koha
 ```
 
-The host files are owned by UID 1000 (host user `nicolaie`). Inside the container,
-`kohadev-koha` (UID 1001) has no write access, causing every operation that `run.sh`
+The host files are owned by UID 1000 (host user `nicolaie`). Inside the container, `kohadev-koha` (UID 1001) has no write access, causing every operation that `run.sh`
 performs as `kohadev-koha` (via `sudo koha-shell`) to fail with Permission denied.
 
-The `set -e` in `run.sh` then causes the container to exit with code 255 when the first
-`sudo koha-shell` command under this mode fails.
+The `set -e` in `run.sh` then causes the container to exit with code 255 when the first `sudo koha-shell` command under this mode fails.
 
 **Affected operations**:
 
@@ -436,8 +423,7 @@ The `set -e` in `run.sh` then causes the container to exit with code 255 when th
 
 ### Fix applied
 
-Added `RUN userdel -r ubuntu` to `Dockerfile` **before the mirror redirect layer**, so
-UID 1000 is free when `koha-create` creates `kohadev-koha` during container startup:
+Added `RUN userdel -r ubuntu` to `Dockerfile` **before the mirror redirect layer**, so UID 1000 is free when `koha-create` creates `kohadev-koha` during container startup:
 
 ```dockerfile
 # ubuntu:24.04 ships with a pre-created 'ubuntu' user at UID 1000.
@@ -449,6 +435,7 @@ RUN userdel -r ubuntu 2>/dev/null || true
 ```
 
 **After this fix**:
+
 - `kohadev-koha` gets UID 1000 (first available UID for a non-system user)
 - `LOCAL_USER_ID=1000` → `run.sh` condition `!= "1000"` is false → no usermod needed
 - `kohadev-koha` at UID 1000 can read/write the host-mounted Koha repo
@@ -463,7 +450,6 @@ RUN userdel -r ubuntu 2>/dev/null || true
 |---|---|
 | `Dockerfile` | Added `RUN userdel -r ubuntu 2>/dev/null \|\| true` before mirror-redirect layer |
 
-
 ---
 
 
@@ -471,15 +457,13 @@ RUN userdel -r ubuntu 2>/dev/null || true
 
 ### Symptom
 
-After the UID fix the container initialised successfully and all `sudo koha-shell` steps
-passed, but `rebuild_elasticsearch.pl` failed at the very end with:
+After the UID fix the container initialised successfully and all `sudo koha-shell` steps passed, but `rebuild_elasticsearch.pl` failed at the very end with:
 
 ```
 [NoNodes] ** No nodes are available: [https://os01:9200]
 ```
 
-The container then exited with code 0 (the error is non-fatal from `run.sh`'s perspective),
-but the search indexes were never built, meaning the catalogue would return no results.
+The container then exited with code 0 (the error is non-fatal from `run.sh`'s perspective), but the search indexes were never built, meaning the catalogue would return no results.
 
 ---
 
@@ -487,46 +471,38 @@ but the search indexes were never built, meaning the catalogue would return no r
 
 #### How the OpenSearch cluster is structured
 
-The OpenSearch 3.6 cluster (`koha-docker/OpenSearch-3.6/`) is a separate Docker Compose
-project. It creates two Docker networks:
+The OpenSearch 3.6 cluster (`koha-docker/OpenSearch-3.6/`) is a separate Docker Compose project. It creates two Docker networks:
 
 | Network | Purpose | Who joins it |
 |---|---|---|
 | `opensearch-36_osearch` | Internal cluster traffic (port 9200, 9300) | os01, os02, os03, os04, os05 |
 | `knonikl` | External bridge (exposed to other projects) | os01, dashboards |
 
-`os01` is the cluster-manager node and it **listens for HTTP/HTTPS on port 9200 only on
-`172.28.0.3`**, which is its `opensearch-36_osearch` network address. It does **not** bind
+`os01` is the cluster-manager node and it **listens for HTTP/HTTPS on port 9200 only on `172.28.0.3`**, which is its `opensearch-36_osearch` network address. It does **not** bind
 to `0.0.0.0`.
 
 #### Why the first approach failed
 
-The koha container was attached to `koha-docker_kohanet` (internal) and `knonikl`
-(external bridge). The intent was to reach `os01` via `knonikl`.
+The koha container was attached to `koha-docker_kohanet` (internal) and `knonikl` (external bridge). The intent was to reach `os01` via `knonikl`.
 
 Two problems:
 
-1. **`os01` was not on `knonikl`**. The `knonikl` network was originally used in an
-   older architecture to connect OpenSearch Dashboards to the Koha proxy. `os01` itself
+1. **`os01` was not on `knonikl`**. The `knonikl` network was originally used in an older architecture to connect OpenSearch Dashboards to the Koha proxy. `os01` itself
    only had an IP on `opensearch-36_osearch`.
 
-2. **Even after manually connecting `os01` to `knonikl`**, the connection still failed.
-   When `os01` was added to `knonikl` at runtime (`docker network connect knonikl os01`),
-   it got a `172.30.x.x` address on that network, but its OpenSearch process still only
-   listened on `172.28.0.3:9200`. Any TCP SYN sent to `172.30.x.x:9200` went unanswered.
+2. **Even after manually connecting `os01` to `knonikl`**, the connection still failed. When `os01` was added to `knonikl` at runtime (`docker network connect knonikl os01`),
+   it got a `172.30.x.x` address on that network, but its OpenSearch process still only listened on `172.28.0.3:9200`. Any TCP SYN sent to `172.30.x.x:9200` went unanswered.
 
 #### Root cause
 
-The koha container needed to be on the **same network as the OpenSearch nodes**, i.e.,
-`opensearch-36_osearch`. From that network, `os01` is reachable at `172.28.0.3:9200`
+The koha container needed to be on the **same network as the OpenSearch nodes**, i.e., `opensearch-36_osearch`. From that network, `os01` is reachable at `172.28.0.3:9200`
 and its hostname `os01` resolves correctly via Docker's internal DNS.
 
 ---
 
 ### Fix
 
-Declared `opensearch-36_osearch` as an **external** network in `koha-docker/docker-compose.yml`
-and attached the `koha` service to it:
+Declared `opensearch-36_osearch` as an **external** network in `koha-docker/docker-compose.yml` and attached the `koha` service to it:
 
 ```yaml
 # koha service — networks section
@@ -550,12 +526,12 @@ networks:
 ```
 
 With this change:
+
 - The koha container joins `opensearch-36_osearch` at startup.
 - Docker's internal DNS resolves `os01` to `172.28.0.3`.
 - TCP connections to `os01:9200` succeed.
 
-**Startup order constraint**: The OpenSearch cluster (`koha-docker/OpenSearch-3.6/`)
-must be running **before** `docker compose up` is issued for `koha-docker`, because
+**Startup order constraint**: The OpenSearch cluster (`koha-docker/OpenSearch-3.6/`) must be running **before** `docker compose up` is issued for `koha-docker`, because
 Docker refuses to start a compose project that references a non-existent external network.
 
 ---
@@ -572,21 +548,17 @@ Docker refuses to start a compose project that references a non-existent externa
 
 ### Symptom
 
-After fixing the Docker network, the koha container could TCP-connect to `os01:9200`,
-but `rebuild_elasticsearch.pl` still failed with `[NoNodes]`. Three independent bugs in
+After fixing the Docker network, the koha container could TCP-connect to `os01:9200`, but `rebuild_elasticsearch.pl` still failed with `[NoNodes]`. Three independent bugs in
 the `Search::Elasticsearch` Perl library combined to cause this.
 
 ---
 
 ### Cause A — SSL certificate verification
 
-**Error at HTTPS level**: `IO::Socket::SSL: SSL connect attempt failed … certificate
-verify failed`.
+**Error at HTTPS level**: `IO::Socket::SSL: SSL connect attempt failed … certificate verify failed`.
 
-`ELASTIC_SERVER=https://os01:9200` triggers HTTPS. The `Search::Elasticsearch` Perl
-module (version 8.12) uses `Search::Elasticsearch::Cxn::HTTPTiny` as its HTTP backend,
-**not** `LWP::UserAgent`. Therefore the environment variable `PERL_LWP_SSL_VERIFY_HOSTNAME=0`
-(which only affects `LWP`) has **no effect** here.
+`ELASTIC_SERVER=https://os01:9200` triggers HTTPS. The `Search::Elasticsearch` Perl module (version 8.12) uses `Search::Elasticsearch::Cxn::HTTPTiny` as its HTTP backend,
+**not** `LWP::UserAgent`. Therefore the environment variable `PERL_LWP_SSL_VERIFY_HOSTNAME=0` (which only affects `LWP`) has **no effect** here.
 
 #### How the HTTPTiny backend handles SSL options
 
@@ -601,17 +573,11 @@ if ( $self->is_https && $self->has_ssl_options ) {
 }
 ```
 
-`SSL_options` is a hashref passed straight through to `IO::Socket::SSL`. Setting
-`SSL_verify_mode => 0` (falsy) leaves `verify_ssl` unset (defaulting to `0` = no
-hostname verify), and passes `SSL_options => { SSL_verify_mode => 0 }` to
-`IO::Socket::SSL`, which interprets `SSL_VERIFY_NONE`. This correctly disables
-certificate verification.
+`SSL_options` is a hashref passed straight through to `IO::Socket::SSL`. Setting `SSL_verify_mode => 0` (falsy) leaves `verify_ssl` unset (defaulting to `0` = no hostname verify), and passes `SSL_options => { SSL_verify_mode => 0 }` to `IO::Socket::SSL`, which interprets `SSL_VERIFY_NONE`. This correctly disables certificate verification.
 
 #### How to inject `ssl_options` into Koha's constructor call
 
-Koha's `koha-conf.xml` has an `<elasticsearch>` block. Every XML child element in that
-block is collected into a hashref and passed as keyword arguments to
-`Search::Elasticsearch->new(...)`. The block is generated at startup from a template:
+Koha's `koha-conf.xml` has an `<elasticsearch>` block. Every XML child element in that block is collected into a hashref and passed as keyword arguments to `Search::Elasticsearch->new(...)`. The block is generated at startup from a template:
 
 ```xml
 <!-- files/templates/koha-conf-site.xml.in -->
@@ -622,8 +588,7 @@ block is collected into a hashref and passed as keyword arguments to
 </elasticsearch>
 ```
 
-`${ELASTIC_OPTIONS}` is expanded by `envsubst` from the container environment. So
-setting:
+`${ELASTIC_OPTIONS}` is expanded by `envsubst` from the container environment. So setting:
 
 ```bash
 ELASTIC_OPTIONS=<ssl_options><SSL_verify_mode>0</SSL_verify_mode></ssl_options>
@@ -649,11 +614,9 @@ causes the generated `koha-conf.xml` to contain:
 }
 ```
 
-…which is passed to `Search::Elasticsearch->new(ssl_options => { SSL_verify_mode => 0 })`,
-disabling certificate verification in the `HTTPTiny` backend.
+…which is passed to `Search::Elasticsearch->new(ssl_options => { SSL_verify_mode => 0 })`, disabling certificate verification in the `HTTPTiny` backend.
 
-**Fix**: Add `<ssl_options><SSL_verify_mode>0</SSL_verify_mode></ssl_options>` to
-`ELASTIC_OPTIONS` in `env/.env`.
+**Fix**: Add `<ssl_options><SSL_verify_mode>0</SSL_verify_mode></ssl_options>` to `ELASTIC_OPTIONS` in `env/.env`.
 
 ---
 
@@ -667,27 +630,20 @@ The original `ELASTIC_SERVER` was:
 ELASTIC_SERVER=https://admin:test%40Cici24%23ANA@os01:9200
 ```
 
-The password `test@Cici24#ANA` was percent-encoded (`%40` for `@`, `%23` for `#`) because
-those characters have special meaning in URLs.
+The password `test@Cici24#ANA` was percent-encoded (`%40` for `@`, `%23` for `#`) because those characters have special meaning in URLs.
 
 #### What goes wrong inside `Search::Elasticsearch`
 
-`Role::Cxn` parses the node URL using a URI library. The URI library **decodes**
-percent-encoding during parsing, so the extracted `userinfo` becomes `admin:test@Cici24#ANA`.
-However, `Role::Cxn` then base64-encodes the **already-decoded** string to build the
-`Authorization: Basic ...` header — so the header is correct.
+`Role::Cxn` parses the node URL using a URI library. The URI library **decodes** percent-encoding during parsing, so the extracted `userinfo` becomes `admin:test@Cici24#ANA`.
+However, `Role::Cxn` then base64-encodes the **already-decoded** string to build the `Authorization: Basic ...` header — so the header is correct.
 
-**BUT**: when the URL contains special characters (`@`, `#`) in the password portion,
-some URI library versions do not reliably parse the authority component. The `@` sign is
-the user-info/host separator, so `test@Cici24#ANA` in the password position confuses the
-parser. In the version installed, the password was extracted as `test%40Cici24%23ANA`
-(the URL-encoded form, left un-decoded), and that literal string was base64-encoded and
-sent as the password — which OpenSearch rejected.
+**BUT**: when the URL contains special characters (`@`, `#`) in the password portion, some URI library versions do not reliably parse the authority component. The `@` sign is
+the user-info/host separator, so `test@Cici24#ANA` in the password position confuses the parser. In the version installed, the password was extracted as `test%40Cici24%23ANA`
+(the URL-encoded form, left un-decoded), and that literal string was base64-encoded and sent as the password — which OpenSearch rejected.
 
 #### Fix
 
-Remove the credentials from `ELASTIC_SERVER` entirely, and pass them via the `userinfo`
-constructor parameter instead:
+Remove the credentials from `ELASTIC_SERVER` entirely, and pass them via the `userinfo` constructor parameter instead:
 
 ```bash
 ELASTIC_SERVER=https://os01:9200
@@ -701,8 +657,7 @@ if ( my $userinfo = $self->userinfo ) {
 }
 ```
 
-When `userinfo` is provided directly as a plain string (not via URL parsing), it is
-base64-encoded as-is — so `admin:test@Cici24#ANA` produces the correct header.
+When `userinfo` is provided directly as a plain string (not via URL parsing), it is base64-encoded as-is — so `admin:test@Cici24#ANA` produces the correct header.
 
 Add to `ELASTIC_OPTIONS`:
 
@@ -714,12 +669,9 @@ Add to `ELASTIC_OPTIONS`:
 
 ### Cause C — Elasticsearch 8.x product check rejects OpenSearch
 
-**Error**: `[ProductCheck] ** The client noticed that the server is not Elasticsearch`
-→ node marked dead → `[NoNodes]`.
+**Error**: `[ProductCheck] ** The client noticed that the server is not Elasticsearch` → node marked dead → `[NoNodes]`.
 
-The installed `Search::Elasticsearch` Perl module is version **8.12**. Starting from
-version 8, the library enforces a product-compatibility check in
-`Role::Cxn::process_response` (line 369):
+The installed `Search::Elasticsearch` Perl module is version **8.12**. Starting from version 8, the library enforces a product-compatibility check in `Role::Cxn::process_response` (line 369):
 
 ```perl
 if ( $self->client_version >= 8 and $code >= 200 and $code < 300 ) {
@@ -734,17 +686,13 @@ if ( $self->client_version >= 8 and $code >= 200 and $code < 300 ) {
 }
 ```
 
-OpenSearch returns `x-elastic-product: OpenSearch` in its response headers (not
-`Elasticsearch`). Every successful HTTP 2xx response triggers the check, which throws
-`ProductCheck`, which marks the node as dead. The very first request (`GET /`) already
-fails this way, so no index operations ever reach the server.
+OpenSearch returns `x-elastic-product: OpenSearch` in its response headers (not `Elasticsearch`). Every successful HTTP 2xx response triggers the check, which throws
+`ProductCheck`, which marks the node as dead. The very first request (`GET /`) already fails this way, so no index operations ever reach the server.
 
 #### Fix
 
-Pass `<client_version>7</client_version>` via `ELASTIC_OPTIONS`. When `client_version`
-is set to `7`, the condition `$self->client_version >= 8` is false and the product check
-is entirely skipped. The rest of the 8.x API (request format, response parsing) continues
-to work normally with OpenSearch 3.6.
+Pass `<client_version>7</client_version>` via `ELASTIC_OPTIONS`. When `client_version` is set to `7`, the condition `$self->client_version >= 8` is false and the product check
+is entirely skipped. The rest of the 8.x API (request format, response parsing) continues to work normally with OpenSearch 3.6.
 
 ---
 
@@ -809,8 +757,7 @@ SUCCESS: cluster=opensearch version=3.6.0
 
 ### Symptom
 
-With all auth/SSL/product-check issues resolved, `rebuild_elasticsearch.pl` connected
-successfully but received HTTP 400 when trying to create the Koha search indexes:
+With all auth/SSL/product-check issues resolved, `rebuild_elasticsearch.pl` connected successfully but received HTTP 400 when trying to create the Koha search indexes:
 
 ```
 [Request] ** [https://os01:9200]-[400] [illegal_argument_exception]
@@ -823,9 +770,7 @@ Custom Analyzer [icu_folding_normalizer] failed to find filter under name [icu_f
 
 #### What Koha's Elasticsearch mappings require
 
-Koha ships with a set of index configuration files under
-`koha/etc/searchengine/elasticsearch/`. These define custom analyzers for the `biblio`
-and `authority` indexes. The `marc21` mappings use three ICU analysis features:
+Koha ships with a set of index configuration files under `koha/etc/searchengine/elasticsearch/`. These define custom analyzers for the `biblio` and `authority` indexes. The `marc21` mappings use three ICU analysis features:
 
 | Feature | Type | Plugin component |
 |---|---|---|
@@ -833,19 +778,13 @@ and `authority` indexes. The `marc21` mappings use three ICU analysis features:
 | `icu_folding` | token filter | `analysis-icu` |
 | `icu_normalizer` | char filter | `analysis-icu` |
 
-If any of these are referenced in the index settings but the plugin is not installed on
-OpenSearch, the index creation request returns HTTP 400 with `illegal_argument_exception`.
+If any of these are referenced in the index settings but the plugin is not installed on OpenSearch, the index creation request returns HTTP 400 with `illegal_argument_exception`.
 
 #### Which nodes were missing the plugin
 
-The OpenSearch cluster uses a custom `Dockerfile` in
-`koha-docker/OpenSearch-3.6/assets/opensearch/Dockerfile`. In the original file, only
-**`os01`** used the `build:` directive pointing to this Dockerfile. **`os02`–`os05`**
-used `image: opensearchproject/opensearch:${OPEN_SEARCH_VERSION}` directly, meaning they
-were started from the unmodified base image with no custom packages.
+The OpenSearch cluster uses a custom `Dockerfile` in `koha-docker/OpenSearch-3.6/assets/opensearch/Dockerfile`. In the original file, only **`os01`** used the `build:` directive pointing to this Dockerfile. **`os02`–`os05`** used `image: opensearchproject/opensearch:${OPEN_SEARCH_VERSION}` directly, meaning they were started from the unmodified base image with no custom packages.
 
-Even if the Dockerfile had included the `analysis-icu` plugin, the four data/ingest/search
-nodes would not have it. OpenSearch requires all nodes in a cluster to have the same
+Even if the Dockerfile had included the `analysis-icu` plugin, the four data/ingest/search nodes would not have it. OpenSearch requires all nodes in a cluster to have the same
 plugins installed; a plugin must be present on every node that handles index shards.
 
 Confirming with the OpenSearch API:
@@ -875,15 +814,11 @@ RUN /usr/share/opensearch/bin/opensearch-plugin install --batch analysis-icu
 USER root
 ```
 
-The plugin is installed as the `opensearch` user (not `root`) because the plugin
-installer writes into `/usr/share/opensearch/plugins/`, which is owned by the
-`opensearch` user in the base image. Running it as `root` produces a permission warning
-and can leave the plugin directory with incorrect ownership.
+The plugin is installed as the `opensearch` user (not `root`) because the plugin installer writes into `/usr/share/opensearch/plugins/`, which is owned by the `opensearch` user in the base image. Running it as `root` produces a permission warning and can leave the plugin directory with incorrect ownership.
 
 #### 2. Switch `os02`–`os05` from `image:` to `build:`
 
-`koha-docker/OpenSearch-3.6/docker-compose.yml` — for each of `os02`, `os03`, `os04`,
-`os05`, replaced:
+`koha-docker/OpenSearch-3.6/docker-compose.yml` — for each of `os02`, `os03`, `os04`, `os05`, replaced:
 
 ```yaml
 image: opensearchproject/opensearch:${OPEN_SEARCH_VERSION}
@@ -936,8 +871,7 @@ curl -sk -u 'admin:test@Cici24#ANA' https://localhost:9200/_cat/plugins?v | grep
 
 ### Complete startup sequence
 
-The three projects must be started in order because each depends on Docker networks or
-services created by the previous one.
+The three projects must be started in order because each depends on Docker networks or services created by the previous one.
 
 ---
 
@@ -948,8 +882,7 @@ cd /media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/OpenSearch-3.6
 docker compose build
 ```
 
-This builds the custom image (with `analysis-icu`) for all five nodes. Only needed after
-modifying the Dockerfile or upgrading the OpenSearch version. On subsequent runs, the
+This builds the custom image (with `analysis-icu`) for all five nodes. Only needed after modifying the Dockerfile or upgrading the OpenSearch version. On subsequent runs, the
 cached images are reused and this step can be skipped.
 
 ---
@@ -972,17 +905,14 @@ done
 echo "Cluster is green"
 ```
 
-The network `opensearch-36_osearch` is created by this compose project. Step 3 will fail
-with `network not found` if this step is skipped or if the cluster has not yet finished
+The network `opensearch-36_osearch` is created by this compose project. Step 3 will fail with `network not found` if this step is skipped or if the cluster has not yet finished
 initialising.
 
 ---
 
 #### Step 3 — Initialise the Koha database (first run or to reset state)
 
-The `koha` container's `run.sh` expects a **fresh, empty database** named
-`koha_${KOHA_INSTANCE}`. If the database already contains tables from a previous run,
-`do_all_you_can_do.pl` will report conflicts and the container may exit early.
+The `koha` container's `run.sh` expects a **fresh, empty database** named `koha_${KOHA_INSTANCE}`. If the database already contains tables from a previous run, `do_all_you_can_do.pl` will report conflicts and the container may exit early.
 
 ```bash
 docker exec koha-docker-db-1 mysql -uroot -ppassword -e "
@@ -1019,8 +949,7 @@ docker compose \
   up -d --force-recreate koha
 ```
 
-`--force-recreate` ensures the container picks up any changes to environment variables or
-bind mounts, and always starts with a clean container state (no leftover Plack PIDs,
+`--force-recreate` ensures the container picks up any changes to environment variables or bind mounts, and always starts with a clean container state (no leftover Plack PIDs,
 stale sockets, etc.).
 
 ---
@@ -1035,8 +964,7 @@ docker compose \
   logs -f koha
 ```
 
-The startup script (`run.sh`) is long-running and produces extensive output. Key milestones
-to watch for, in sequence:
+The startup script (`run.sh`) is long-running and produces extensive output. Key milestones to watch for, in sequence:
 
 | Milestone | Log line |
 |---|---|
@@ -1051,8 +979,7 @@ to watch for, in sequence:
 | Plack Intranet started | `Plack enabled for kohadev Intranet` |
 | **Ready** | `koha-testing-docker has started up and is ready to be enjoyed!` |
 
-The container exits with code 0 after printing the "ready" line — this is expected. The
-Plack workers continue running inside the container even after `run.sh` exits.
+The container exits with code 0 after printing the "ready" line — this is expected. The Plack workers continue running inside the container even after `run.sh` exits.
 
 ---
 
@@ -1096,8 +1023,7 @@ After a successful start:
 | Staff interface (Intranet) | http://kohadev-intra.myDNSname.org:8081 |
 | OpenSearch Dashboards | http://localhost:5601 (via `knonikl` network / Traefik) |
 
-Default superlibrarian credentials are set by `create_superlibrarian.pl` during startup
-(see `env/.env` for `KOHA_ADMINUSER` / `KOHA_ADMINPASS`).
+Default superlibrarian credentials are set by `create_superlibrarian.pl` during startup (see `env/.env` for `KOHA_ADMINUSER` / `KOHA_ADMINPASS`).
 
 ---
 
@@ -1402,7 +1328,7 @@ Added validation that `traefik/docker-compose.yaml` exists:
 1. stop_koha
 2. stop_support_services
 3. stop_opensearch
-4. stop_traefik            ← NEW
+4. stop_traefik
 ```
 
 **h) `show_status()` updated**
@@ -1434,15 +1360,13 @@ The "ready" banner now shows both access methods and all four service URLs:
 ╚══════════════════════════════════════════════════════════╝
 ```
 
-If `TRAEFIK_HTTP_PORT` is not 80, the port suffix (e.g., `:8000`) is appended
-automatically to all Traefik-routed URLs.
+If `TRAEFIK_HTTP_PORT` is not 80, the port suffix (e.g., `:8000`) is appended automatically to all Traefik-routed URLs.
 
 ---
 
 ### Hostname resolution — three options documented
 
-The Traefik labels handle the routing side. For a browser to send a request with the
-correct `Host:` header to the Docker host, the hostnames must resolve. Three approaches
+The Traefik labels handle the routing side. For a browser to send a request with the correct `Host:` header to the Docker host, the hostnames must resolve. Three approaches
 are documented in the README and below:
 
 #### Option 1 — `/etc/hosts` (simple, single machine)
@@ -1452,13 +1376,11 @@ are documented in the README and below:
 127.0.0.1  kohadev-intra.myDNSname.org
 ```
 
-Requires a one-time edit with `sudo` on every machine that needs access. Good enough for
-a single developer's workstation.
+Requires a one-time edit with `sudo` on every machine that needs access. Good enough for a single developer's workstation.
 
 #### Option 2 — `nip.io` wildcard DNS (zero-config, portable)
 
-[nip.io](https://nip.io) is a public DNS service that resolves any hostname containing
-an embedded IP address back to that IP. No registration, no local configuration.
+[nip.io](https://nip.io) is a public DNS service that resolves any hostname containing an embedded IP address back to that IP. No registration, no local configuration.
 
 Set in `env/.env`:
 
@@ -1472,16 +1394,12 @@ Access URLs become:
 - `http://kohadev.127.0.0.1.nip.io` (OPAC)
 - `http://kohadev-intra.127.0.0.1.nip.io` (Staff)
 
-The Traefik `Host()` rules and Koha's Apache virtual hosts are rebuilt from `KOHA_DOMAIN`
-automatically on next `docker compose up`. No other files need changing.
-
-This is the most portable option for development. It works from any machine on the LAN
-(using the server's LAN IP) without touching DNS or `/etc/hosts` on any client.
+The Traefik `Host()` rules and Koha's Apache virtual hosts are rebuilt from `KOHA_DOMAIN` automatically on next `docker compose up`. No other files need changing.
+This is the most portable option for development. It works from any machine on the LAN (using the server's LAN IP) without touching DNS or `/etc/hosts` on any client.
 
 #### Option 3 — Real DNS (production)
 
-Create DNS A records for `kohadev.myDNSname.org` and `kohadev-intra.myDNSname.org`
-(or a wildcard `*.myDNSname.org`) pointing to the server's public IP. Traefik handles
+Create DNS A records for `kohadev.myDNSname.org` and `kohadev-intra.myDNSname.org` (or a wildcard `*.myDNSname.org`) pointing to the server's public IP. Traefik handles
 routing; no client-side configuration needed.
 
 ---
@@ -1496,13 +1414,10 @@ providers:
     network: frontend
 ```
 
-This tells Traefik: "when forwarding requests to containers, use the IP address the
-container has on the `frontend` network." If the `koha` container is not attached to
-`frontend`, Traefik cannot reach it even though the labels are visible via the Docker
-socket. Attaching `koha` to `frontend` solves this.
+This tells Traefik: "when forwarding requests to containers, use the IP address the container has on the `frontend` network." If the `koha` container is not attached to
+`frontend`, Traefik cannot reach it even though the labels are visible via the Docker socket. Attaching `koha` to `frontend` solves this.
 
-The `knonikl` network continues to serve its original purpose (Koha ↔ OpenSearch
-Dashboards communication) and is unrelated to Traefik routing.
+The `knonikl` network continues to serve its original purpose (Koha ↔ OpenSearch Dashboards communication) and is unrelated to Traefik routing.
 
 ---
 
@@ -1531,6 +1446,7 @@ The nip.io DNS service itself was fine — `host kohadev.127.0.0.1.nip.io` → `
 **New env var `KOHA_PUBLIC_PORT=80`** decouples the *public-facing* port (what users type in browser, served by Traefik) from the *internal Apache port* (`KOHA_OPAC_PORT=8080`, used for container-to-container routing and Traefik backend).
 
 URL construction logic in `files/run.sh`:
+
 - Port 80 or empty → URLs have **no port suffix**: `http://kohadev.127.0.0.1.nip.io`
 - Any other port → suffix appended: `http://kohadev.127.0.0.1.nip.io:8000`
 
@@ -1577,18 +1493,15 @@ Staff via Traefik:   HTTP 200 ✓
 
 ### Goal
 
-Synchronise `koha-docker` (Linux/Ubuntu image) with the improvements developed in
-`koha-docker-windows` (https://github.com/kosson/koha-docker-windows) and prepare the
-project for publishing a reusable `kosson/koha-ubuntu` image to Docker Hub, mirroring
-the existing `kosson/koha-windows` image.
+Synchronise `koha-docker` (Linux/Ubuntu image) with the improvements developed in `koha-docker-windows` (https://github.com/kosson/koha-docker-windows) and prepare the
+project for publishing a reusable `kosson/koha-ubuntu` image to Docker Hub, mirroring the existing `kosson/koha-windows` image.
 
 ---
 
 ### Source
 
 All changes analysed from `koha-docker-windows` at commit `main` (2026-05-08).
-Windows-specific workarounds (CRLF inotifywait watcher, `azure.archive.ubuntu.com`
-mirror swap, `--no-check-certificate` for nodesource) were deliberately **excluded**
+Windows-specific workarounds (CRLF inotifywait watcher, `azure.archive.ubuntu.com` mirror swap, `--no-check-certificate` for nodesource) were deliberately **excluded**
 as they address Hyper-V/WSL2 issues that do not apply to native Linux builds.
 
 ---
@@ -1605,8 +1518,7 @@ ENV PATH=/usr/bin:/bin:/usr/sbin:/sbin
 ENV PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ```
 
-`/usr/local/bin` is where the new `apt-install-retry` helper is placed. Without it at
-the front of `PATH`, subsequent `RUN` layers that call `apt-install-retry` by name would
+`/usr/local/bin` is where the new `apt-install-retry` helper is placed. Without it at the front of `PATH`, subsequent `RUN` layers that call `apt-install-retry` by name would
 not find it.
 
 #### 2. `REFRESHED_AT` date
@@ -1627,25 +1539,20 @@ Updated to `2026-05-15`.
 
 #### 4. New `apt-install-retry` helper script
 
-A small POSIX shell wrapper placed in `/usr/local/bin/apt-install-retry` replaces every
-bare `apt-get update && apt-get -y install` call in the Dockerfile. It:
+A small POSIX shell wrapper placed in `/usr/local/bin/apt-install-retry` replaces every bare `apt-get update && apt-get -y install` call in the Dockerfile. It:
 
 - Runs `apt-get update` + `apt-get -y install "$@"` in a loop (up to 4 attempts)
-- Passes `-o Acquire::Max-FutureTime=86400` inline on every attempt so the clock-skew
-  tolerance applies even before the conf layer is cached by Docker
-- Removes `/var/lib/apt/lists/*` between retries (forces a fresh index fetch) but does
-  **not** `apt-get clean` (preserves partial `.deb` files so apt can resume via HTTP
+- Passes `-o Acquire::Max-FutureTime=86400` inline on every attempt so the clock-skew tolerance applies even before the conf layer is cached by Docker
+- Removes `/var/lib/apt/lists/*` between retries (forces a fresh index fetch) but does **not** `apt-get clean` (preserves partial `.deb` files so apt can resume via HTTP
   Range requests on the next attempt)
 - Exits non-zero after the final attempt, causing the `RUN` layer to fail visibly
 
 #### 5. All package install blocks converted to `apt-install-retry`
 
-Every `RUN apt-get update && apt-get -y install ... && rm -rf /var/cache/apt/...` block
-was replaced with `RUN /bin/sh /usr/local/bin/apt-install-retry <packages>`. The
+Every `RUN apt-get update && apt-get -y install ... && rm -rf /var/cache/apt/...` block was replaced with `RUN /bin/sh /usr/local/bin/apt-install-retry <packages>`. The
 trailing `rm -rf` cleanup is handled inside the helper on success.
 
-This also eliminates the `koha-common` special case that had a separate `apt-get -y update`
-before install.
+This also eliminates the `koha-common` special case that had a separate `apt-get -y update` before install.
 
 #### 6. CRLF normalization after `COPY`
 
@@ -1658,8 +1565,7 @@ RUN sed -i 's/\r$//' /kohadevbox/run.sh \
     && chmod +x /kohadevbox/run.sh
 ```
 
-Applied immediately after the `COPY` statements so the files are clean before any
-container uses them, regardless of the editor or OS used by contributors.
+Applied immediately after the `COPY` statements so the files are clean before any container uses them, regardless of the editor or OS used by contributors.
 
 #### 7. `CMD` directive
 
@@ -1667,8 +1573,7 @@ container uses them, regardless of the editor or OS used by contributors.
 CMD ["/bin/bash", "/kohadevbox/run.sh"]
 ```
 
-Makes the built image directly runnable as `docker run kosson/koha-ubuntu` without
-requiring an explicit command override. This is required for the image to be usable as a
+Makes the built image directly runnable as `docker run kosson/koha-ubuntu` without requiring an explicit command override. This is required for the image to be usable as a
 pull-and-run target from Docker Hub.
 
 ---
@@ -1685,29 +1590,21 @@ pull-and-run target from Docker Hub.
 # RUN_SH_VERSION=2026-05-15
 ```
 
-Prevents the common mistake of editing `run.sh` on the host and expecting a running
-container to pick up the changes.
+Prevents the common mistake of editing `run.sh` on the host and expecting a running container to pick up the changes.
 
 #### 2. OpenSearch wait loop (critical missing feature)
 
-The Linux version had **no wait loop** for OpenSearch before calling
-`do_all_you_can_do.pl --elasticsearch`. The Perl script would immediately call
-`rebuild_elasticsearch.pl`, which would fail with `[NoNodes]` if the OpenSearch cluster
-was not yet ready (cold start, cluster election not complete).
+The Linux version had **no wait loop** for OpenSearch before calling `do_all_you_can_do.pl --elasticsearch`. The Perl script would immediately call `rebuild_elasticsearch.pl`, which would fail with `[NoNodes]` if the OpenSearch cluster was not yet ready (cold start, cluster election not complete).
 
 A 60-attempt loop (5 s sleep each = 5 min maximum wait) was added:
 
-- **TCP pre-check**: `nc -z -w 3 os01 9200` — avoids spending a costly curl attempt on
-  a port that is not even open yet
-- **HTTPS health check**: `curl` against `/_cluster/health?wait_for_status=yellow` with
-  correct credentials and CA cert handling (uses mounted `opensearch-root-ca.pem` if
+- **TCP pre-check**: `nc -z -w 3 os01 9200` — avoids spending a costly curl attempt on a port that is not even open yet
+- **HTTPS health check**: `curl` against `/_cluster/health?wait_for_status=yellow` with correct credentials and CA cert handling (uses mounted `opensearch-root-ca.pem` if
   present, falls back to `-k`)
 - **Cluster status check**: waits for `"status":"yellow"` or `"status":"green"`
-- **Progress logging**: prints attempt number and last curl response on attempt 1 and
-  every 10th attempt
+- **Progress logging**: prints attempt number and last curl response on attempt 1 and every 10th attempt
 
-If OpenSearch does not become ready within 5 minutes, `run.sh` exits with code 1 (early
-abort) rather than silently continuing and producing an empty search index.
+If OpenSearch does not become ready within 5 minutes, `run.sh` exits with code 1 (early abort) rather than silently continuing and producing an empty search index.
 
 #### 3. Elasticsearch/Zebra sed hacks
 
@@ -1720,11 +1617,9 @@ sed -i 's|\$cmd = "sudo koha-rebuild-zebra -f -v \$instance";|say "Skipping...";
     "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
 ```
 
-`misc4dev` forces a full Zebra rebuild after ES indexing succeeds. On the current sample
-dataset (`misc4dev` test data), several MARC records contain malformed XML (control
+`misc4dev` forces a full Zebra rebuild after ES indexing succeeds. On the current sample dataset (`misc4dev` test data), several MARC records contain malformed XML (control
 characters, invalid UTF-8) that cause `koha-rebuild-zebra` to abort with an error.
-Since Elasticsearch/OpenSearch is the active search backend, the Zebra index is unused;
-the rebuild failure would abort `do_all_you_can_do.pl` and the container.
+Since Elasticsearch/OpenSearch is the active search backend, the Zebra index is unused; the rebuild failure would abort `do_all_you_can_do.pl` and the container.
 
 **b) Suppress ES rebuild noise:**
 
@@ -1733,8 +1628,7 @@ sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elas
     "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
 ```
 
-Redirects the verbose output of `rebuild_elasticsearch.pl` to a temp file during
-setup so the startup log is readable. The file remains available for inspection.
+Redirects the verbose output of `rebuild_elasticsearch.pl` to a temp file during setup so the startup log is readable. The file remains available for inspection.
 
 #### 4. CRLF normalization for `migration_tools`
 
@@ -1743,10 +1637,8 @@ find "${BUILD_DIR}/koha/misc/migration_tools" -type f -name '*.pl' \
     -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 ```
 
-`koha-rebuild-zebra` calls these scripts directly. CRLF shebangs produce a misleading
-"No such file or directory" error (the shell looks for `/usr/bin/perl\r`). This
-normalization runs even on Linux builds, as the Koha repo may include commits from
-Windows developers.
+`koha-rebuild-zebra` calls these scripts directly. CRLF shebangs produce a misleading "No such file or directory" error (the shell looks for `/usr/bin/perl\r`). This
+normalization runs even on Linux builds, as the Koha repo may include commits from Windows developers.
 
 #### 5. CRLF normalization for `.pl` / `.cgi` after setup
 
@@ -1755,8 +1647,7 @@ find "${BUILD_DIR}/koha" -type f \( -name '*.pl' -o -name '*.cgi' \) \
         -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 ```
 
-Applied after all setup steps and before Apache is started. Apache's CGI mode runs each
-`.pl` directly via the shebang; a CRLF shebang causes the same "No such file or
+Applied after all setup steps and before Apache is started. Apache's CGI mode runs each `.pl` directly via the shebang; a CRLF shebang causes the same "No such file or
 directory" error silently at request time, producing HTTP 500.
 
 #### 6. Graceful `koha-plack` and `koha-z3950-responder` enable
@@ -1777,8 +1668,7 @@ fi
 service koha-common start 2>&1 | grep -v "you must provide at least one instance name" || true
 ```
 
-Prevents a hard exit when a Koha package profile does not include Plack or Z39.50, and
-suppresses the noisy "you must provide at least one instance name" message from
+Prevents a hard exit when a Koha package profile does not include Plack or Z39.50, and suppresses the noisy "you must provide at least one instance name" message from
 `koha-common start` during profile-less startup.
 
 ---
@@ -1794,10 +1684,7 @@ koha:
         context: .
 ```
 
-When `KOHA_IMAGE_TAG` is set in `env/.env` to a published tag (e.g.,
-`kosson/koha-ubuntu:25.12.00`), Docker Compose will **pull** that image instead of
-building locally — identical to how `kosson/koha-windows` works. To force a local build,
-unset `KOHA_IMAGE_TAG` or run `docker compose build`.
+When `KOHA_IMAGE_TAG` is set in `env/.env` to a published tag (e.g., `kosson/koha-ubuntu:25.12.00`), Docker Compose will **pull** that image instead of building locally — identical to how `kosson/koha-windows` works. To force a local build, unset `KOHA_IMAGE_TAG` or run `docker compose build`.
 
 #### 2. Parameterized DB root password
 
@@ -1823,8 +1710,7 @@ volumes:
     koha-db-data:
 ```
 
-Database data now survives `docker compose down` (without `-v`). Previously the DB was
-stored in an anonymous volume that Docker would remove on the next `down`, requiring a
+Database data now survives `docker compose down` (without `-v`). Previously the DB was stored in an anonymous volume that Docker would remove on the next `down`, requiring a
 full `do_all_you_can_do.pl` re-run on every restart.
 
 ---
@@ -1854,28 +1740,23 @@ full `do_all_you_can_do.pl` re-run on every restart.
 
 ### Goal
 
-Diagnose and fix a 502 Bad Gateway error when accessing OpenSearch Dashboards through
-Traefik, document the OpenSearch TLS certificate setup in `README.md`, and create a
+Diagnose and fix a 502 Bad Gateway error when accessing OpenSearch Dashboards through Traefik, document the OpenSearch TLS certificate setup in `README.md`, and create a
 comprehensive network diagnostic script for ongoing operational use.
 
 ---
 
 ### Problem: Dashboards returned 502 via Traefik
 
-Traefik was proxying plain HTTP to the Dashboards container, but the container was
-listening on **HTTPS** (`server.ssl.enabled: true`). The Dashboards log showed:
+Traefik was proxying plain HTTP to the Dashboards container, but the container was listening on **HTTPS** (`server.ssl.enabled: true`). The Dashboards log showed:
 
 ```
 SSL routines: tls_validate_record_header: http request
 ```
 
-This is an `ERR_SSL_HTTP_REQUEST` — the container received an HTTP request on a port
-that expected TLS handshake bytes.
+This is an `ERR_SSL_HTTP_REQUEST` — the container received an HTTP request on a port that expected TLS handshake bytes.
 
-A secondary issue: `opensearch_security.cookie.secure: true` means the browser will only
-send the session cookie over HTTPS connections. Because Traefik acts as an HTTP proxy
-(not TLS passthrough), the cookie would never be sent back, making login impossible even
-if the 502 were resolved at the TCP level.
+A secondary issue: `opensearch_security.cookie.secure: true` means the browser will only send the session cookie over HTTPS connections. Because Traefik acts as an HTTP proxy
+(not TLS passthrough), the cookie would never be sent back, making login impossible even if the 502 were resolved at the TCP level.
 
 ---
 
@@ -1883,8 +1764,7 @@ if the 502 were resolved at the TCP level.
 
 **File:** `OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml`
 
-Disabled the server-facing TLS so that Dashboards listens on plain HTTP and Traefik's
-default HTTP proxy scheme works correctly. The Dashboards → OpenSearch **backend** TLS
+Disabled the server-facing TLS so that Dashboards listens on plain HTTP and Traefik's default HTTP proxy scheme works correctly. The Dashboards → OpenSearch **backend** TLS
 (mutual authentication with the admin cert and root CA) remains fully active.
 
 ```yaml
@@ -1914,8 +1794,7 @@ Server running at http://0.0.0.0:5601
 
 **File:** `OpenSearch-3.6/docker-compose.yml`
 
-Without an explicit service name and port label, Traefik auto-detected the backend but
-used an incorrect scheme. Added a named service and the port to ensure correct HTTP
+Without an explicit service name and port label, Traefik auto-detected the backend but used an incorrect scheme. Added a named service and the port to ensure correct HTTP
 routing to port 5601.
 
 ```yaml
@@ -1930,8 +1809,7 @@ routing to port 5601.
 
 ### New file: `netcheck.sh`
 
-A self-contained Bash diagnostic script that checks the entire stack's network
-connectivity in one pass. Run with:
+A self-contained Bash diagnostic script that checks the entire stack's network connectivity in one pass. Run with:
 
 ```bash
 cd koha-docker
@@ -1963,11 +1841,8 @@ It performs 60 checks across 13 sections:
 
 ### README.md additions
 
-- New section `## One-time setup — OpenSearch TLS certificates` (inserted before
-  `## Prerequisites`). Covers: what files are pre-generated, cert validity (730 days),
-  when/how to regenerate, warning about security plugin state on regeneration.
-- Updated repository layout tree to include `opensearch_installer_vars.cfg` and
-  `opensearch_local_certificates_creator.sh`.
+- New section `## One-time setup — OpenSearch TLS certificates` (inserted before `## Prerequisites`). Covers: what files are pre-generated, cert validity (730 days), when/how to regenerate, warning about security plugin state on regeneration.
+- Updated repository layout tree to include `opensearch_installer_vars.cfg` and   `opensearch_local_certificates_creator.sh`.
 
 ---
 
@@ -1979,3 +1854,74 @@ It performs 60 checks across 13 sections:
 | `OpenSearch-3.6/docker-compose.yml` | Added explicit Traefik service labels and port for the `dashboards` service |
 | `netcheck.sh` | New file — comprehensive 13-section network diagnostic script |
 | `README.md` | Added OpenSearch TLS certificate setup section; updated repo layout tree |
+
+---
+
+## 2026-05-20 — Single shared OpenSearch image for all cluster nodes
+
+### Goal
+
+Replace the five identical `build:` blocks in `OpenSearch-3.6/docker-compose.yml` (one per node) with a single named image so that Docker maintains only one image entry instead
+of five.
+
+---
+
+### Problem
+
+All five node services (`os01`–`os05`) had the same `build:` stanza pointing to the same `Dockerfile` with the same `OPEN_SEARCH_VERSION` build arg. Docker Compose names service
+images after the project + service name (e.g., `opensearch-36-os01`, `opensearch-36-os02`, …), so `docker images` showed five separate entries even though the layers were byte-for-
+byte identical. This wasted namespace, made cleanup harder, and caused `docker compose build` to run five separate build invocations (with cache hits from the second onwards, but still
+redundant bookkeeping).
+
+---
+
+### Solution
+
+Docker Compose supports specifying both `build:` and `image:` on the same service. When both are present, the built image is tagged with the `image:` name. Any other service that
+lists the same `image:` value will use that already-built local image.
+
+#### `OpenSearch-3.6/docker-compose.yml`
+
+- **`os01`** — kept the `build:` block; added `image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}` alongside it. After `docker compose build os01`, the image is tagged as `kosson/opensearch-icu:3.6.0` (or whichever version is in `.env`).
+- **`os02`–`os05`** — removed `build:` blocks entirely; replaced with:
+
+  ```yaml
+  image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+  pull_policy: never
+  ```
+
+  `pull_policy: never` prevents Docker Compose from attempting to pull the image from a
+  registry — it is a locally-built-only image and has not been pushed to Docker Hub.
+
+#### `stack.sh`
+
+- `build_opensearch()` now runs `docker compose build os01` instead of `docker compose build` (which would previously build all services that have a `build:` block).
+- The `ok` confirmation message now reads the version from `OpenSearch-3.6/.env` via `_env_val` and prints `kosson/opensearch-icu:<version>`.
+- Help text updated: `--build-opensearch` description now names the single image.
+
+#### `README.md`
+
+- Step 1 heading updated to singular ("Build the OpenSearch image").
+- Build command changed to `docker compose build os01`.
+- Description updated to explain the single-image / shared-reference pattern.
+- Build options table entry for `--build-opensearch` updated to name `kosson/opensearch-icu`.
+
+---
+
+### Result
+
+| Before | After |
+|--------|-------|
+| 5 image entries in `docker images` | 1 image entry (`kosson/opensearch-icu:3.6.0`) |
+| `docker compose build` invoked for all 5 services | `docker compose build os01` only |
+| Changing the Dockerfile required rebuilding 5 × | Rebuild once, all nodes pick it up automatically |
+
+---
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `OpenSearch-3.6/docker-compose.yml` | Added `image:` tag to `os01`; removed `build:` blocks from `os02`–`os05`; added `pull_policy: never` to `os02`–`os05` |
+| `stack.sh` | `build_opensearch()` builds `os01` only; version read via `_env_val`; help text updated |
+| `README.md` | Step 1 updated to reflect single-image approach |

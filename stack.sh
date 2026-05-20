@@ -149,12 +149,14 @@ stop_traefik() {
 # Build
 # ---------------------------------------------------------------------------
 build_opensearch() {
-  hdr "Building OpenSearch images"
-  log "Installing analysis-icu plugin into all 5 node images..."
+  local os_ver
+  os_ver="$(_env_val "${OPENSEARCH_DIR}/.env" OPEN_SEARCH_VERSION 3.6.0)"
+  hdr "Building OpenSearch image"
+  log "Building single kosson/opensearch-icu:${os_ver} image with analysis-icu plugin..."
   pushd "${OPENSEARCH_DIR}" > /dev/null
-  docker compose build
+  docker compose build os01
   popd > /dev/null
-  ok "OpenSearch images built."
+  ok "OpenSearch image built (kosson/opensearch-icu:${os_ver})."
 }
 
 build_koha() {
@@ -375,7 +377,7 @@ ${BOLD}Commands:${RESET}
   build       Build images without starting anything
 
 ${BOLD}Options for 'start' and 'build':${RESET}
-  --build-opensearch    Rebuild the custom OpenSearch images (analysis-icu)
+  --build-opensearch    Rebuild the kosson/opensearch-icu image (analysis-icu plugin)
   --build-koha          Rebuild the Koha dev container image
   --build               Rebuild both OpenSearch and Koha images
   --no-fresh-db         Skip the database drop/recreate (preserve existing data)

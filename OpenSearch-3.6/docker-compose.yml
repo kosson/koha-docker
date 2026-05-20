@@ -5,7 +5,9 @@ services:
       dockerfile: assets/opensearch/Dockerfile
       args:
         - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
-    # image: opensearchproject/opensearch:${OPEN_SEARCH_VERSION}
+    # The build above is tagged with the image: name below so that os02–os05 can
+    # reference the same image without needing their own build: blocks.
+    image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
     # user: "1000"
     container_name: os01
     volumes:
@@ -70,11 +72,8 @@ services:
         labels: "production_status"
         env: "os"
   os02:
-    build:
-      context: .
-      dockerfile: assets/opensearch/Dockerfile
-      args:
-        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+    pull_policy: never
     container_name: os02
     volumes:
       - ./assets/ssl/os02.pem:/usr/share/opensearch/config/os02.pem
@@ -118,11 +117,8 @@ services:
     #   os01:
     #     condition: service_healthy      
   os03:
-    build:
-      context: .
-      dockerfile: assets/opensearch/Dockerfile
-      args:
-        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+    pull_policy: never
     container_name: os03
     volumes:
       - ./assets/ssl/os03.pem:/usr/share/opensearch/config/os03.pem
@@ -163,11 +159,8 @@ services:
       - osearch
     restart: on-failure
   os04:
-    build:
-      context: .
-      dockerfile: assets/opensearch/Dockerfile
-      args:
-        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+    pull_policy: never
     container_name: os04
     volumes:
       - ./assets/ssl/os04.pem:/usr/share/opensearch/config/os04.pem
@@ -208,11 +201,8 @@ services:
       - osearch
     restart: on-failure    
   os05:
-    build:
-      context: .
-      dockerfile: assets/opensearch/Dockerfile
-      args:
-        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+    pull_policy: never
     container_name: os05
     volumes:
       - ./assets/ssl/os05.pem:/usr/share/opensearch/config/os05.pem
