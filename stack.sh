@@ -59,10 +59,14 @@ KOHA_INTRANET_PORT="$(_env_val  "${KOHA_ENV_FILE}" KOHA_INTRANET_PORT  8081)"
 KOHA_USER="$(_env_val "${KOHA_ENV_FILE}" KOHA_USER koha)"
 KOHA_PASS="$(_env_val "${KOHA_ENV_FILE}" KOHA_PASS koha)"
 TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT 80)"
+TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT 443)"
 TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT 8083)"
+ACME_EMAIL="$(_env_val "${TRAEFIK_DIR}/.env" ACME_EMAIL "")"
 # Admin password: prefer the OS .env file (source of truth for the cluster)
 OS_ADMIN_PASS="$(_env_val "${OPENSEARCH_DIR}/.env" OPENSEARCH_INITIAL_ADMIN_PASSWORD \
   "$(_env_val "${KOHA_ENV_FILE}" OPENSEARCH_INITIAL_ADMIN_PASSWORD 'changeme')")"
+DASHBOARDS_DOMAIN="$(_env_val "${OPENSEARCH_DIR}/.env" DASHBOARDS_DOMAIN "dashboards.localhost")"
+TLS_CERTRESOLVER="$(_env_val "${KOHA_ENV_FILE}" TLS_CERTRESOLVER "")"
 
 DB_NAME="koha_${KOHA_INSTANCE}"
 DB_USER="koha_${KOHA_INSTANCE}"
@@ -308,20 +312,26 @@ follow_logs() {
     echo "${line}"
     case "${line}" in
       *"koha-testing-docker has started up"*)
+        local proto="http"
         local port_suffix=""
-        [[ "${TRAEFIK_HTTP_PORT}" != "80" ]] && port_suffix=":${TRAEFIK_HTTP_PORT}"
+        if [[ -n "${TLS_CERTRESOLVER}" ]]; then
+          proto="https"
+          [[ "${TRAEFIK_HTTPS_PORT}" != "443" ]] && port_suffix=":${TRAEFIK_HTTPS_PORT}"
+        else
+          [[ "${TRAEFIK_HTTP_PORT}" != "80" ]] && port_suffix=":${TRAEFIK_HTTP_PORT}"
+        fi
         echo ""
         echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
         echo -e "${GREEN}${BOLD}║   Stack fully started and ready!                         ║${RESET}"
         echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════╣${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}  Via Traefik (recommended):║${RESET}"
-        echo -e "${GREEN}${BOLD}║${RESET}    OPAC    : http://${KOHA_INSTANCE}${KOHA_DOMAIN}${port_suffix}║${RESET}"
-        echo -e "${GREEN}${BOLD}║${RESET}    Staff   : http://${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}${port_suffix}║${RESET}"
+        echo -e "${GREEN}${BOLD}║${RESET}    OPAC    : ${proto}://${KOHA_INSTANCE}${KOHA_DOMAIN}${port_suffix}║${RESET}"
+        echo -e "${GREEN}${BOLD}║${RESET}    Staff   : ${proto}://${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}${port_suffix}║${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}  Direct (fallback, no DNS needed):║${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}    OPAC    : http://localhost:${KOHA_OPAC_PORT}║${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}    Staff   : http://localhost:${KOHA_INTRANET_PORT}║${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}  Login     : ${KOHA_USER} / ${KOHA_PASS}║${RESET}"
-        echo -e "${GREEN}${BOLD}║${RESET}  Dashbrd   : http://dashboards.localhost${port_suffix}║${RESET}"
+        echo -e "${GREEN}${BOLD}║${RESET}  Dashbrd   : ${proto}://${DASHBOARDS_DOMAIN}${port_suffix}║${RESET}"
         echo -e "${GREEN}${BOLD}║${RESET}  Traefik   : http://localhost:${TRAEFIK_DASHBOARD_PORT}║${RESET}"
         local demo_note; demo_note="$( [[ "${LOAD_DEMO_DATA:-yes}" == "no" ]] && echo "clean (no demo data)" || echo "with demo data" )"
         echo -e "${GREEN}${BOLD}║${RESET}  Catalogue : ${demo_note}║${RESET}"

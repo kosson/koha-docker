@@ -131,11 +131,16 @@ With `KOHA_DOMAIN=.127.0.0.1.nip.io` (the recommended quick-start value):
 
 Look into the section [Accessing the stack](#accessing-the-stack).
 
-### TLS certificates (existing commit — no action needed)
+### TLS certificates
 
-The OpenSearch cluster certificates are **pre-generated and committed** to the repository. A fresh clone is ready to use them immediately. You only need to regenerate certificates if you are deploying to a different organisation or the certs have expired.
+The project has two independent TLS layers:
 
-Generate the certificates details section: [One-time setup — OpenSearch TLS certificates](#one-time-setup--opensearch-tls-certificates).
+| Layer | What it secures | How certificates are provided |
+|---|---|---|
+| **OpenSearch cluster** | Node-to-node transport, admin API, Dashboards → OpenSearch backend | Self-signed certs, **pre-generated and committed** to the repo. No action needed on a fresh clone. See [One-time setup — OpenSearch TLS certificates](#one-time-setup--opensearch-tls-certificates). |
+| **Public HTTPS** (Traefik edge) | Browser → OPAC, Browser → Staff interface, Browser → Dashboards | Let's Encrypt via ACME, or Traefik self-signed fallback. See [Let's Encrypt — automatic public HTTPS](#lets-encrypt--automatic-public-https). |
+
+> **Why these are separate**: OpenSearch internal certs use Distinguished Name (DN) identity for mutual TLS between containers — Let's Encrypt domain-validation cannot and should not replace them. Traefik terminates public HTTPS at the edge; the backend connections use the self-signed OpenSearch CA.
 
 ---
 
@@ -161,6 +166,7 @@ Critical values to verify:
 | `KOHA_OPAC_PORT` | `8080` | OPAC port exposed on the host (internal Apache port, also used by Traefik backend) |
 | `KOHA_INTRANET_PORT` | `8081` | Staff interface port exposed on the host (internal Apache port) |
 | `KOHA_PUBLIC_PORT` | `80` | **Public-facing HTTP port served by Traefik.** URLs stored in the Koha database (`OPACBaseURL`, `staffClientBaseURL`) use this port. Port 80 is the default for HTTP and is omitted from URLs — so links in Koha pages will not contain `:8080`. Change to match `TRAEFIK_HTTP_PORT` if Traefik runs on a non-standard port (e.g. `8000`). |
+| `TLS_CERTRESOLVER` | *(empty)* | Certificate resolver name for Traefik HTTPS routers. Set to `letsencrypt` to request automatic certificates from Let's Encrypt. Requires `ACME_EMAIL` set in `traefik/.env`, a publicly reachable port 80, and a real public `KOHA_DOMAIN`. Leave empty for local dev — Traefik falls back to a self-signed certificate for HTTPS while HTTP continues to work normally. Also set the same value in `OpenSearch-3.6/.env` for the Dashboards service. |
 
 ### Demo data
 
@@ -603,13 +609,15 @@ The stack ships with a **Traefik** reverse proxy (`traefik/docker-compose.yaml`)
 
 #### Service URLs via Traefik
 
-| Service | URL | Credentials |
-|---|---|---|
-| **OPAC** (public catalogue) | http://kohadev.myDNSname.org | — (public) |
-| **Staff interface** | http://kohadev-intra.myDNSname.org | `koha` / `koha` |
-| **OpenSearch Dashboards** | http://dashboards.localhost | `admin` / `test@Cici24#ANA` |
-| **Traefik dashboard** | http://localhost:8083 | — |
-| **OpenSearch REST API** | https://localhost:9200 | `admin` / `test@Cici24#ANA` |
+| Service | HTTP URL | HTTPS URL (when `TLS_CERTRESOLVER=letsencrypt`) | Credentials |
+|---|---|---|---|
+| **OPAC** (public catalogue) | http://kohadev.myDNSname.org | https://kohadev.myDNSname.org | — (public) |
+| **Staff interface** | http://kohadev-intra.myDNSname.org | https://kohadev-intra.myDNSname.org | `koha` / `koha` |
+| **OpenSearch Dashboards** | http://dashboards.localhost | https://dashboards.myDNSname.org | `admin` / *see `env/.env`* |
+| **Traefik dashboard** | http://localhost:8083 | — | — |
+| **OpenSearch REST API** | — | https://localhost:9200 (self-signed) | `admin` / *see `env/.env`* |
+
+HTTPS routers are always registered. When `TLS_CERTRESOLVER` is empty (default), Traefik serves HTTPS with a self-signed fallback certificate (browser shows a cert warning) and HTTP continues to work normally. Set `TLS_CERTRESOLVER=letsencrypt` to switch to trusted certificates — see [Let's Encrypt — automatic public HTTPS](#lets-encrypt--automatic-public-https).
 
 > **Credentials are set in `env/.env`** (`KOHA_USER`, `KOHA_PASS`,
 > `OPENSEARCH_INITIAL_ADMIN_PASSWORD`). The table above shows the defaults.
@@ -667,13 +675,16 @@ Point real DNS A records for `kohadev.myDNSname.org` and `kohadev-intra.myDNSnam
 
 ### Traefik port configuration
 
-The Traefik container's HTTP port defaults to **80**. If port 80 is already in use on the host, edit `traefik/.env`:
+All Traefik ports are set in `traefik/.env`:
 
-```bash
-TRAEFIK_HTTP_PORT=8000   # or any free port
-```
+| Variable | Default | Description |
+|---|---|---|
+| `TRAEFIK_HTTP_PORT` | `80` | Host port bound to Traefik's `web` (HTTP) entrypoint. Change to a non-privileged port (e.g. `8000`) if port 80 is in use. |
+| `TRAEFIK_HTTPS_PORT` | `443` | Host port bound to Traefik's `websecure` (HTTPS/TLS) entrypoint. |
+| `TRAEFIK_DASHBOARD_PORT` | `8083` | Host port for the Traefik API dashboard. |
+| `ACME_EMAIL` | *(empty)* | Contact email for Let's Encrypt certificate registration. Must be set to enable automatic TLS. See [Let's Encrypt — automatic public HTTPS](#lets-encrypt--automatic-public-https). |
 
-After changing the port, access URLs become `http://kohadev.myDNSname.org:8000`.
+After changing `TRAEFIK_HTTP_PORT`, access URLs become `http://kohadev.myDNSname.org:8000`. Set `KOHA_PUBLIC_PORT` to the same value in `env/.env` so Koha's stored URLs match.
 
 ### Quick health checks
 
@@ -767,14 +778,117 @@ Then follow the full startup sequence (Steps 3–5) again.
 
 ---
 
-## TLS certificate verification (production)
+## Let's Encrypt — automatic public HTTPS
 
-The default setup bypasses TLS verification (`SSL_verify_mode => 0`, `PERL_LWP_SSL_VERIFY_HOSTNAME=0`). To use the OpenSearch self-signed CA instead:
+Traefik's built-in ACME client can request and renew certificates from Let's Encrypt automatically. This section explains how to enable it.
+
+> **Scope**: Let's Encrypt certs cover only the public-facing Traefik edge (OPAC, Staff interface, Dashboards). The OpenSearch cluster's internal node-to-node TLS always uses the pre-generated self-signed CA — Let's Encrypt cannot replace it.
+
+### Prerequisites
+
+| Requirement | Details |
+|---|---|
+| Public domain | `KOHA_DOMAIN` in `env/.env` must be a real DNS domain that resolves to this server's public IP (e.g. `.library.example.com`, **not** `.127.0.0.1.nip.io`). |
+| Port 80 open | Let's Encrypt uses HTTP-01 challenge: it sends an HTTP request on port 80 to verify domain ownership. `TRAEFIK_HTTP_PORT=80` and port 80 must be reachable from the internet. |
+| Valid email | Used for Let's Encrypt account registration and expiry notices. |
+| Rate limits | Let's Encrypt [rate-limits](https://letsencrypt.org/docs/rate-limits/) certificate issuance. Avoid restarting the stack repeatedly during testing — use the [staging environment](https://letsencrypt.org/docs/staging-environment/) first if needed. |
+
+### Step-by-step
+
+**1. Set a real public domain** in `env/.env`:
+
+```bash
+KOHA_DOMAIN=.library.example.com
+```
+
+Koha OPAC will be at `kohadev.library.example.com`, Staff at `kohadev-intra.library.example.com`.
+
+**2. Set the Dashboards hostname** in `OpenSearch-3.6/.env`:
+
+```bash
+DASHBOARDS_DOMAIN=dashboards.library.example.com
+```
+
+**3. Set your ACME email** in `traefik/.env`:
+
+```bash
+ACME_EMAIL=admin@library.example.com
+```
+
+**4. Enable the cert resolver** in **both** `env/.env` and `OpenSearch-3.6/.env`:
+
+```bash
+TLS_CERTRESOLVER=letsencrypt
+```
+
+**5. Start the stack**:
+
+```bash
+./stack.sh start
+```
+
+On the first HTTPS request to each hostname, Traefik contacts Let's Encrypt, completes the HTTP-01 challenge (served automatically by Traefik on port 80), and stores the issued certificate in the `traefik_certs` Docker volume (`acme.json`). Subsequent requests use the cached certificate. Traefik renews certificates automatically before expiry.
+
+### Verifying certificate issuance
+
+```bash
+# Expect a valid Let's Encrypt certificate (not "TRAEFIK DEFAULT CERT")
+curl -sv https://kohadev.library.example.com 2>&1 | grep -E 'subject|issuer|expire'
+
+# Inspect acme.json inside Traefik
+docker exec traefik cat /var/traefik/certs/acme.json | python3 -m json.tool | grep -A5 '"domain"'
+```
+
+### Enabling HTTP → HTTPS redirect (optional)
+
+By default both HTTP and HTTPS are served. To redirect all HTTP traffic to HTTPS, **after** Let's Encrypt certificates are confirmed working, uncomment four lines at the bottom of the `labels:` block in `docker-compose.yml`:
+
+```yaml
+- "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+- "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+- "traefik.http.routers.koha-opac.middlewares=redirect-to-https"    # ← uncomment
+- "traefik.http.routers.koha-staff.middlewares=redirect-to-https"   # ← uncomment
+```
+
+Then restart the Koha container:
+
+```bash
+docker compose -f docker-compose.yml --env-file env/.env up -d --force-recreate koha
+```
+
+> **Warning**: do not enable the redirect before certificates are working. An HTTP→HTTPS redirect without a valid cert creates a redirect loop that prevents certificate issuance (the HTTP-01 challenge itself uses port 80).
+
+### Certificate storage and backup
+
+Certificates are stored in the `traefik_certs` Docker named volume as `acme.json`. This file is created automatically on first run.
+
+Back it up regularly — if it is lost, Traefik must re-issue all certificates, which counts against Let's Encrypt rate limits:
+
+```bash
+docker run --rm -v traefik_certs:/data alpine cat /data/acme.json > acme.json.backup
+```
+
+### Using Let's Encrypt staging (rate-limit safe testing)
+
+Add the staging CA URL to the Traefik `command:` in `traefik/docker-compose.yaml`:
+
+```yaml
+command:
+  - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+```
+
+Staging certificates are not trusted by browsers (you will still see a cert warning) but issuance does not count against production rate limits. Remove the `caserver` line when you are ready to switch to production certificates.
+
+---
+
+## TLS certificate verification (production) — OpenSearch
+
+The default setup bypasses TLS verification for the Koha → OpenSearch connection (`SSL_verify_mode => 0`, `PERL_LWP_SSL_VERIFY_HOSTNAME=0`). To use the OpenSearch self-signed CA instead:
 
 1. Set in `env/.env`:
 
 ```bash
-OPENSEARCH_CA_CERT=/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/OpenSearch-3.6/assets/ssl/root-ca.pem
+OPENSEARCH_CA_CERT=/path/to/koha-docker/OpenSearch-3.6/assets/ssl/root-ca.pem
 PERL_LWP_SSL_VERIFY_HOSTNAME=1
 ```
 

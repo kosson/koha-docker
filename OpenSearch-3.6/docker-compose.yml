@@ -261,12 +261,20 @@ services:
       - 5601
     labels:
       - traefik.enable=true
-      - traefik.http.routers.dashboards.rule=Host(`dashboards.localhost`)
+      - traefik.http.routers.dashboards.rule=Host(`${DASHBOARDS_DOMAIN:-dashboards.localhost}`)
       - traefik.http.routers.dashboards.entrypoints=web
       - traefik.http.routers.dashboards.service=dashboards-svc
       # Explicit port — required because server.ssl.enabled=false makes the container
       # listen on plain HTTP; without this label Traefik may auto-detect the wrong port.
       - traefik.http.services.dashboards-svc.loadbalancer.server.port=5601
+      # HTTPS router — TLS_CERTRESOLVER controls cert management (set in .env):
+      #   (empty)     → Traefik self-signed fallback cert
+      #   letsencrypt → Let's Encrypt cert (requires ACME_EMAIL + public DASHBOARDS_DOMAIN)
+      - traefik.http.routers.dashboards-tls.rule=Host(`${DASHBOARDS_DOMAIN:-dashboards.localhost}`)
+      - traefik.http.routers.dashboards-tls.entrypoints=websecure
+      - traefik.http.routers.dashboards-tls.tls=true
+      - traefik.http.routers.dashboards-tls.tls.certresolver=${TLS_CERTRESOLVER:-}
+      - traefik.http.routers.dashboards-tls.service=dashboards-svc
     environment:
       - OPENSEARCH_HOSTS=["https://os01:9200","https://os02:9200"] # Define the OpenSearch nodes that OpenSearch Dashboards will query
     networks:

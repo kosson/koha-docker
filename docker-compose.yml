@@ -82,6 +82,30 @@ services:
             - "traefik.http.routers.koha-staff.entrypoints=web"
             - "traefik.http.routers.koha-staff.service=koha-staff-svc"
             - "traefik.http.services.koha-staff-svc.loadbalancer.server.port=${KOHA_INTRANET_PORT:-8081}"
+            # ── HTTPS routers (websecure / :443) ──────────────────────────────
+            # TLS_CERTRESOLVER controls certificate management (set in env/.env):
+            #   (empty)       → Traefik self-signed fallback cert (cert warning in browser)
+            #   letsencrypt   → Automatic Let's Encrypt certificate
+            # Prerequisites for Let's Encrypt: ACME_EMAIL set in traefik/.env,
+            # port 80 reachable from the internet, and a real public KOHA_DOMAIN.
+            - "traefik.http.routers.koha-opac-tls.rule=Host(`${KOHA_INSTANCE}${KOHA_DOMAIN}`)"
+            - "traefik.http.routers.koha-opac-tls.entrypoints=websecure"
+            - "traefik.http.routers.koha-opac-tls.tls=true"
+            - "traefik.http.routers.koha-opac-tls.tls.certresolver=${TLS_CERTRESOLVER:-}"
+            - "traefik.http.routers.koha-opac-tls.service=koha-opac-svc"
+            - "traefik.http.routers.koha-staff-tls.rule=Host(`${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}`)"
+            - "traefik.http.routers.koha-staff-tls.entrypoints=websecure"
+            - "traefik.http.routers.koha-staff-tls.tls=true"
+            - "traefik.http.routers.koha-staff-tls.tls.certresolver=${TLS_CERTRESOLVER:-}"
+            - "traefik.http.routers.koha-staff-tls.service=koha-staff-svc"
+            # ── HTTP → HTTPS redirect (optional, disabled by default) ─────────
+            # The middleware is always registered. Apply it by uncommenting the last
+            # two lines AFTER Let's Encrypt certificates are confirmed working.
+            # Enabling before valid certs are in place causes a redirect loop.
+            - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+            - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
+            # - "traefik.http.routers.koha-opac.middlewares=redirect-to-https"
+            # - "traefik.http.routers.koha-staff.middlewares=redirect-to-https"
         networks:
             kohanet:
                 aliases:

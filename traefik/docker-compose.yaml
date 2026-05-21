@@ -7,10 +7,25 @@ services:
       - "${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_HTTPS_PORT:-443}:443"
       - "${TRAEFIK_DASHBOARD_PORT:-8083}:8080"
+    command:
+      # Load the file-based static configuration (entrypoints, providers, etc.).
+      - "--configFile=/etc/traefik/traefik.yaml"
+      # ── Let's Encrypt (ACME) ─────────────────────────────────────────────
+      # HTTP-01 challenge: Let's Encrypt contacts port 80 to verify domain ownership.
+      # The resolver is always registered; it only issues certificates when a service
+      # router explicitly references it (tls.certresolver=letsencrypt) AND ACME_EMAIL
+      # is a valid address.  When ACME_EMAIL is empty Traefik skips ACME registration
+      # and falls back to a self-signed certificate for any websecure router.
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/var/traefik/certs/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/traefik.yaml:/etc/traefik/traefik.yaml:ro
-      # - traefik_certs:/var/traefik/certs/:rw
+      # Persistent storage for ACME certificates obtained from Let's Encrypt.
+      # The file is created automatically on first run.  Back it up — if it is
+      # lost, Traefik must re-issue all certificates (subject to LE rate limits).
+      - traefik_certs:/var/traefik/certs/:rw
     environment:
       - TZ=UTC
     healthcheck:
@@ -35,6 +50,6 @@ services:
 networks:
   frontend:
     external: true
-# volumes:
-  # traefik_certs:
-  #   driver: local
+volumes:
+  traefik_certs:
+    driver: local
