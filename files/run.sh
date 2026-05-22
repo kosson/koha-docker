@@ -3,7 +3,7 @@
 # NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files/run.sh).
 # Editing this file on the host has NO effect until the image is rebuilt:
 #   ./stack.sh start -b   (or docker compose build)
-# RUN_SH_VERSION=2026-05-15
+# RUN_SH_VERSION=2026-05-22
 
 set -e
 
@@ -488,11 +488,35 @@ if ! koha-z3950-responder --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
     echo "[INFO] koha-z3950-responder enable skipped; continuing"
 fi
 
+# Start RabbitMQ BEFORE koha-common so background job workers connect via STOMP.
+# Workers attempt the STOMP connection only once at startup; if RabbitMQ is not
+# yet running they silently fall back to 10-second DB polling, which still works
+# but loses instant job notifications.
+service rabbitmq-server start || true # Don't crash if rabbitmq-server didn't start
+
+# Wait up to 30 s for the STOMP port (61613) to become available.
+if service rabbitmq-server status >/dev/null 2>&1; then
+    echo "[rabbitmq] Waiting for STOMP port 61613..."
+    _stomp_ready=no
+    for _i in $(seq 1 30); do
+        if nc -z localhost 61613 2>/dev/null; then
+            _stomp_ready=yes
+            break
+        fi
+        sleep 1
+    done
+    if [ "${_stomp_ready}" = "yes" ]; then
+        echo "[rabbitmq] STOMP port 61613 is ready"
+    else
+        echo "[rabbitmq] WARNING: STOMP port 61613 not ready after 30 s — workers will use DB polling fallback"
+    fi
+    unset _stomp_ready _i
+fi
+
 service koha-common start 2>&1 | grep -v "you must provide at least one instance name" || true
 
-# Start apache and rabbitmq-server
+# Start apache2
 service apache2 start
-service rabbitmq-server start || true # Don't crash if rabbitmq-server didn't start
 
 touch /ktd_ready
 echo "koha-testing-docker has started up and is ready to be enjoyed!"

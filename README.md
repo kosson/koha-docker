@@ -706,6 +706,80 @@ curl -sI http://dashboards.localhost | head -1
 ```
 ---
 
+## Data preparation — things to take into consideration
+
+This section covers what you must verify and prepare **before importing MARC records** into Koha. Skipping these checks will cause background jobs to fail with FK constraint errors or crash the OPAC with cryptic Perl exceptions.
+
+### MARC item field requirements (MARC21 field 952)
+
+When exporting MARC records from any ILS for import into Koha, **every item record must include at minimum** the following `952` subfields. Missing subfields are stored as `NULL` in the `items` table and will cause import failures or runtime crashes.
+
+| Subfield | Koha `items` column | Required | Notes |
+|---|---|---|---|
+| `952$a` | `homebranch` | **YES** | Branch code of the owning library. Must exist in `branches.branchcode` **before** import. A missing value or an unknown code causes the `marc_import_commit_batch` background job to fail with a FK constraint error at commit time. |
+| `952$b` | `holdingbranch` | **YES** | Branch currently holding the item. Set it equal to `$a` if unknown. When `NULL`, the OPAC crashes with `DBIC result _type isn't of the _type Branch` because `Koha::Item->holding_library` tries to inflate a `NULL` FK into a `Koha::Library` object. |
+| `952$y` | `itype` | **YES** | Item type code (e.g. `BK`, `MU`, `VM`). Must exist in `itemtypes.itemtype`. A `NULL` value suppresses circulation rules and may produce display errors throughout the staff interface and OPAC. |
+| `952$p` | `barcode` | Recommended | Unique barcode string. `NULL` is allowed but items without barcodes cannot be checked out. |
+| `952$c` | `location` | Optional | Shelving location authorised value (e.g. `GEN`, `REF`). `NULL` is safe — location is simply not displayed. |
+| `952$o` | `itemcallnumber` | Optional | Call number string. `NULL` is safe. |
+| `952$g` | `price` | Optional | Purchase price as a decimal. `NULL` is safe. |
+| `952$d` | `dateaccessioned` | Optional | Acquisition date in `YYYY-MM-DD` format. `NULL` defaults to no date. |
+
+### Pre-import checklist
+
+Run these checks against your Koha database **before** staging a MARC file.
+
+**1. Verify branches exist**
+
+```sql
+SELECT branchcode, branchname FROM branches ORDER BY branchcode;
+```
+
+Every `952$a` (homebranch) and `952$b` (holdingbranch) value in your MARC file must appear in this list. Add any missing branch via **Administration → Libraries** in the staff interface, or directly:
+
+```sql
+INSERT INTO branches (branchcode, branchname, pickup_location, public)
+VALUES ('CODE', 'Branch Name', 1, 1);
+```
+
+**2. Verify item types exist**
+
+```sql
+SELECT itemtype, description FROM itemtypes ORDER BY itemtype;
+```
+
+Every `952$y` value in your MARC file must appear here. Add missing types via **Administration → Item types**.
+
+**3. Verify authorised values (if used)**
+
+If your MARC file includes shelving locations (`952$c`) or collection codes (`952$8`), verify the values exist:
+
+```sql
+SELECT category, authorised_value, lib FROM authorised_values
+WHERE category IN ('LOC', 'CCODE')
+ORDER BY category, authorised_value;
+```
+
+Add missing values via **Administration → Authorised values**.
+
+**4. Check for barcode conflicts**
+
+If your MARC file includes barcodes (`952$p`), ensure none already exist in the database:
+
+```sql
+SELECT barcode FROM items WHERE barcode IS NOT NULL ORDER BY barcode;
+```
+
+Duplicates will cause individual item inserts to fail silently during the commit job.
+
+### If you cannot fix the export source
+
+Use a **MARC modification template** (Tools → MARC modification templates) to map, default, or rewrite `952` subfields **during the staging step**, before the commit job runs. This lets you transform branch codes, assign a default item type, or remove unknown subfields without touching the source file.
+
+Alternatively, set `item_action = ignore` on the staging form to skip item import entirely — the bibliographic records will still be imported, and items can be added manually afterwards.
+
+---
+
 ## Known non-fatal warnings
 
 These messages appear in the logs on every clean start and can be ignored:
