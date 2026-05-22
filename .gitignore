@@ -10,6 +10,8 @@ OpenSearch-3.6/assets/ssl/*.pem
 OpenSearch-3.6/assets/ssl/*.key
 OpenSearch-3.6/assets/ssl/*.crt
 
+OpenSearch-3.6/assets/opensearch/data/
+
 # Editor / OS noise
 .DS_Store
 *.swp
