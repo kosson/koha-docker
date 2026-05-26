@@ -79,7 +79,7 @@ Take a look at the [Koha source tree](#koha-source-tree) to get aquainted to the
 
 ### 3. Configure `env/.env`
 
-Open `env/.env` and update **at minimum** these two values:
+Rename the template.env file to `.env`. Open `env/.env` and update **at minimum** these two values:
 
 | Variable | What to change |
 |---|---|
@@ -146,7 +146,7 @@ The project has two independent TLS layers:
 
 ## Initial configuration
 
-All settings live in **`env/.env`**. Copy or review the file before the first start.
+All settings live in **`env/.env`**. Rename the template.env file to `.env`. Copy or review the file before the first start.
 Critical values to verify:
 
 ### Identity and paths
