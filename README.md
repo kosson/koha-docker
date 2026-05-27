@@ -86,7 +86,7 @@ Rename the template.env file to `.env`. Open `env/.env` and update **at minimum*
 | `SYNC_REPO` | Set to the **absolute path** on your host to the `koha/` directory cloned above — e.g. `/home/youruser/koha-docker/koha` |
 | `KOHA_DOMAIN` | Change to `.<ip>.nip.io` for zero-config portable DNS — the simplest choice is `.127.0.0.1.nip.io`, which makes the OPAC reachable at `http://kohadev.127.0.0.1.nip.io` with no `/etc/hosts` edits |
 
-Everything else has workable defaults. See [Initial configuration](#initial-configuration).
+Everything else has workable defaults. See [Initial configuration](#initial-configuration). You still need to modify `SYNC_REPO` to reflect the path on your machine as mentioned. Now, if you modified the `ELASTIC_OPTION` password and as a consquence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD`, you need to make sure you modify the `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder.
 
 > **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
 > `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
