@@ -2310,3 +2310,182 @@ After the stack is running and HTTPS is confirmed working, optionally enable the
 | `OpenSearch-3.6/docker-compose.yml` | Dashboards hostname configurable via `DASHBOARDS_DOMAIN`; added `dashboards-tls` HTTPS router |
 | `stack.sh` | Added `TRAEFIK_HTTPS_PORT`, `ACME_EMAIL`, `DASHBOARDS_DOMAIN`, `TLS_CERTRESOLVER` reads; startup banner shows `https://` when TLS is active |
 | `README.md` | Added `TLS_CERTRESOLVER` to config table; rewrote TLS certificate quick-setup note; updated service URL table with HTTPS column; updated Traefik port config section; added full `## Let's Encrypt — automatic public HTTPS` section; split `## TLS certificate verification` section to clarify OpenSearch vs public HTTPS scope |
+
+---
+
+## 2026-05-27 — OpenSearch cluster authentication failure after password change
+
+### Problem
+
+After changing the admin password from `test@Cici24#ANA` to `testSimplu` in both `.env` files, the OpenSearch cluster failed to start cleanly. All authentication attempts returned HTTP 401 — including the `wait_opensearch_green` healthcheck in `stack.sh`, the Koha Elasticsearch connector, and the OpenSearch Dashboards backend. Every node eventually marked all others as dead and `stack.sh` would time out waiting for a green cluster.
+
+---
+
+### Root causes (three independent issues)
+
+#### Root cause 1 — Hash mismatch in `internal_users.yml`
+
+`OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml` stores bcrypt hashes for the built-in users (`admin`, `dashboards`, `kibanaserver`). The file still contained the bcrypt hash generated for the **old** password `test@Cici24#ANA` (entry C7 in `OpenSearch-3.6/FIXES.md`). The password values in `.env` were updated to `testSimplu`, but the `internal_users.yml` hashes were never regenerated.
+
+With `DISABLE_INSTALL_DEMO_CONFIG=true`, the OpenSearch Docker entrypoint does **not** run `install_demo_configuration.sh` and does **not** auto-generate or validate password hashes. The hash in `internal_users.yml` is loaded as-is and must match the password used for authentication. Every request therefore received 401.
+
+**Key insight**: `plugins.security.restapi.password_validation_regex` in `opensearch.yml` (the password complexity pattern `(?=.*[A-Z])(?=.*[^a-zA-Z\d])…`) applies **only to REST API password-change requests**, not to the initial hash loading from `internal_users.yml`. The Security plugin does not enforce complexity rules on hashes already present in the file.
+
+#### Root cause 2 — Stale cluster state from previous SSL certificate set
+
+`OpenSearch-3.6/assets/opensearch/data/os0{2,3,4}data/` each contained ~11 MB of cluster state written under the previous SSL certificate identity (different node Subject/SAN values). After SSL certificates were regenerated, the new transport-layer node identities did not match the persisted state. The cluster elected os01 as cluster manager but the other nodes could not join — they were seen as different nodes.
+
+`stack.sh reset` performs `docker compose down --volumes`, which removes **named Docker volumes** but does **not** wipe bind-mounted directories. The data directories are bind mounts, so stale data survives a `reset`.
+
+#### Root cause 3 — Literal double-quotes in `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+
+Both `.env` files had:
+```bash
+OPENSEARCH_INITIAL_ADMIN_PASSWORD="testSimplu"
+```
+Docker Compose strips the double quotes during env-file parsing, so the effective value is `testSimplu` — functionally correct. However, the literal quotes were a latent confusion risk (especially in scripts that read the file with `grep`/`awk` without stripping quotes).
+
+---
+
+### Fix applied
+
+#### 1. Regenerate `internal_users.yml` hashes
+
+Generated the correct bcrypt hash using OpenSearch's own `hash.sh` tool via a temporary container (avoids installing `htpasswd` or any external bcrypt tool, and ensures the hash format and cost factor exactly match what the Security plugin expects):
+
+```bash
+docker run --rm opensearchproject/opensearch:3.6.0 \
+  bash -c '/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "testSimplu" 2>/dev/null'
+# → $2y$12$.MrUYog2krxCrFiqWvTGy.eu.4VX8qb6UtiCfFxVwQtqzDSUOsmHa
+```
+
+Updated all three user entries (`admin`, `dashboards`, `kibanaserver`) in `internal_users.yml` with this hash.
+
+#### 2. Wipe stale data directories
+
+```bash
+cd koha-docker/OpenSearch-3.6
+rm -rf assets/opensearch/data/os0{1,2,3,4,5}data/*
+```
+
+Forces a fresh cluster bootstrap under the new SSL certificate identities. All Koha Elasticsearch indexes are rebuilt by `rebuild_elasticsearch.pl` on next `stack.sh start`.
+
+#### 3. Remove literal double-quotes from both `.env` files
+
+```bash
+# Before
+OPENSEARCH_INITIAL_ADMIN_PASSWORD="testSimplu"
+
+# After
+OPENSEARCH_INITIAL_ADMIN_PASSWORD=testSimplu
+```
+
+Applied to both `OpenSearch-3.6/.env` and `koha-docker/env/.env`.
+
+---
+
+### Verification
+
+After the three fixes, the cluster reached green status with 5/5 nodes and 0 unassigned shards:
+
+```bash
+curl -sk -u 'admin:testSimplu' https://localhost:9200/_cluster/health | python3 -m json.tool
+# "status": "green", "number_of_nodes": 5, "unassigned_shards": 0
+```
+
+Authentication confirmed:
+```bash
+curl -sk -u 'admin:testSimplu' https://localhost:9200/ | grep number
+# "number" : "3.6.0"
+```
+
+---
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml` | All three user hashes (`admin`, `dashboards`, `kibanaserver`) updated to bcrypt hash for `testSimplu` |
+| `OpenSearch-3.6/.env` | Removed literal double-quotes from `OPENSEARCH_INITIAL_ADMIN_PASSWORD` |
+| `env/.env` | Removed literal double-quotes from `OPENSEARCH_INITIAL_ADMIN_PASSWORD`; `ELASTIC_OPTIONS` `<userinfo>` updated to `admin:testSimplu` |
+| `OpenSearch-3.6/FIXES.md` | Entry C9 added documenting the hash mismatch, stale data, and quoted password issues |
+
+---
+
+## 2026-05-27 — opensearch_local_certificates_creator.sh: automatic internal_users.yml hash update
+
+### Goal
+
+Eliminate the manual step of regenerating `internal_users.yml` hashes after a password change. Previously, running the certificate creator script regenerated SSL certificates but left the Security plugin user hashes unchanged — requiring a separate manual hash generation and file edit whenever the password was rotated.
+
+---
+
+### Problem
+
+The certificate creator script (`OpenSearch-3.6/opensearch_local_certificates_creator.sh`) regenerates all SSL certificates (root CA, admin cert, per-node certs, dashboards cert) on each run. However, changing the admin password (in `.env`) did not automatically update the bcrypt hashes in `internal_users.yml`.
+
+The disconnect meant that:
+
+1. SSL certs and `.env` password could be updated together in one operation.
+2. But `internal_users.yml` hashes remained stale — pointing to the old password.
+3. The cluster would start, accept the new certs, but reject all authentication (401) because the stored hash did not match the new password.
+
+This is exactly what caused the outage documented in the previous entry.
+
+---
+
+### Changes made to `opensearch_local_certificates_creator.sh`
+
+A new section was appended at the end of the script (after certificate generation and `opensearch.yml` patching) that:
+
+1. **Reads `OPENSEARCH_INITIAL_ADMIN_PASSWORD`** from `OpenSearch-3.6/.env` using `grep`/`cut` (same pattern used elsewhere in the script).
+
+2. **Reads `OPEN_SEARCH_VERSION`** from `.env` to know which image to run for hash generation.
+
+3. **Generates the bcrypt hash** by running OpenSearch's own `hash.sh` tool in a temporary container. The password is passed via an environment variable (not a command-line argument) so that special characters (`@`, `#`, `$`, etc.) are handled safely without any shell quoting issues:
+
+```bash
+ADMIN_PASS="$OPENSEARCH_INITIAL_ADMIN_PASSWORD" \
+docker run --rm \
+  -e "ADMIN_PASS=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" \
+  "opensearchproject/opensearch:${OS_VER}" \
+  bash -c '/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "$ADMIN_PASS" 2>/dev/null'
+```
+
+4. **Updates all `hash:` entries in `internal_users.yml`** using Python's `re.sub` to replace any existing bcrypt hash (pattern `\$2[aby]\$\d+\$[./A-Za-z0-9]+`) with the freshly generated one. Python is used instead of `sed` because bcrypt hashes contain `/`, `$`, and `.` — all of which conflict with common `sed` delimiters:
+
+```bash
+python3 -c "
+import re, sys
+content = open('${INTERNAL_USERS_FILE}').read()
+new_content = re.sub(
+    r'(hash:\s*\")[^\$]*(\\\$2[aby]\\\$[^\"]+)(\")',
+    r'\1${NEW_HASH}\3',
+    content
+)
+open('${INTERNAL_USERS_FILE}', 'w').write(new_content)
+"
+```
+
+5. **Prints a reminder** to wipe the OpenSearch data directories before restarting:
+
+```
+[REMINDER] Wipe data directories before restarting OpenSearch:
+  rm -rf assets/opensearch/data/os0{1,2,3,4,5}data/*
+```
+
+---
+
+### Verification
+
+After running the script with password `testSimplu`:
+- `internal_users.yml` hash entries changed from `$2y$12$.MrUYog2krxCrFiqWvTGy…` (hash for `testSimplu` from previous run) to `$2y$12$ihOmRJyfhO7xJCwsIDJL5…` (new hash for same password, different random salt — confirming the update fired).
+- Cluster restarted with the new certs and the new hash, reached green status, `admin:testSimplu` authenticated successfully.
+
+---
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `OpenSearch-3.6/opensearch_local_certificates_creator.sh` | New section at end of script: reads password and OS version from `.env`, generates bcrypt hash via `docker run opensearchproject/opensearch hash.sh`, updates all `hash:` entries in `internal_users.yml` using Python regex, prints data-dir wipe reminder |

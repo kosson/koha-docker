@@ -47,6 +47,7 @@ C5	~~os02 `enforce_hostname_verification` commented out~~ **FIXED** (uncommented
 C6	~~os02 `opensearch.yml` missing security REST API settings~~ **FIXED**
 C7	~~`internal_users.yml` hash was for password `admin`, not `test@Cici24#ANA`~~ **FIXED**
 C8	~~os01 healthcheck: single-quoted password never expands + no `--fail` + dashboards starts before security ready~~ **FIXED**
+C9	~~`internal_users.yml` hash was for old password `test@Cici24#ANA` after password changed to `testSimplu` — cluster started unhealthy (healthcheck 401)~~ **FIXED** (regenerated hash with OpenSearch's own `hash.sh`, updated all three user hashes in `internal_users.yml`; wiped stale data dirs from previous certificate set; removed literal double-quotes from `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in both `.env` files)
 
 
 

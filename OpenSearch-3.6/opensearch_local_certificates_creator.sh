@@ -68,3 +68,54 @@ find "$SCRIPT_DIR/assets/opensearch/config"          -type d               | xar
 find "$SCRIPT_DIR/assets/opensearch/config"          -type f               | xargs chmod 600
 find "$SCRIPT_DIR/assets/opensearch/performance-analyzer" -type f          | xargs chmod 600 2>/dev/null || true
 echo "File permissions set (certs: 600, config dirs: 700, config files: 600)."
+
+# --- Update internal_users.yml password hash ----------------------------------------
+# Read OPENSEARCH_INITIAL_ADMIN_PASSWORD from .env and regenerate the bcrypt hash for
+# every user entry in os01's internal_users.yml using OpenSearch's own hash.sh tool.
+# This keeps the file in sync whenever the password is changed and certs are regenerated —
+# a stale hash is the most common cause of 401 / healthcheck failures on fresh starts.
+
+INTERNAL_USERS_YML="$SCRIPT_DIR/assets/opensearch/config/os01/opensearch-security/internal_users.yml"
+ENV_FILE="$SCRIPT_DIR/.env"
+
+# Read password; strip surrounding single/double quotes (handles KEY=value and KEY="value")
+ADMIN_PASS="$(grep -E '^OPENSEARCH_INITIAL_ADMIN_PASSWORD=' "$ENV_FILE" 2>/dev/null \
+    | head -1 | cut -d= -f2- | tr -d '"'"'")"
+
+if [ -z "$ADMIN_PASS" ]; then
+    echo "WARNING: OPENSEARCH_INITIAL_ADMIN_PASSWORD not found in $ENV_FILE — skipping hash update."
+elif ! command -v docker >/dev/null 2>&1; then
+    echo "WARNING: docker not found — cannot regenerate hash. Update $INTERNAL_USERS_YML manually."
+else
+    OS_VER="$(grep -E '^OPEN_SEARCH_VERSION=' "$ENV_FILE" 2>/dev/null \
+        | head -1 | cut -d= -f2- | tr -d '"'"'")"
+    OS_VER="${OS_VER:-3.6.0}"
+
+    echo "Generating bcrypt hash via opensearch:${OS_VER} hash.sh ..."
+    # Pass password via env variable so shell-special characters in the password are safe.
+    NEW_HASH="$(docker run --rm \
+        -e "ADMIN_PASS=${ADMIN_PASS}" \
+        "opensearchproject/opensearch:${OS_VER}" \
+        bash -c '/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "$ADMIN_PASS" 2>/dev/null')"
+
+    if [ -z "$NEW_HASH" ]; then
+        echo "ERROR: hash.sh returned an empty result — $INTERNAL_USERS_YML NOT updated."
+    else
+        # Replace every  hash: "$2x$..."  line (covers admin, dashboards, kibanaserver users).
+        # Uses Python to avoid sed delimiter conflicts with the hash's special characters.
+        python3 - "$NEW_HASH" "$INTERNAL_USERS_YML" << 'PYEOF'
+import re, sys
+new_hash, filepath = sys.argv[1], sys.argv[2]
+content = open(filepath).read()
+content = re.sub(r'(  hash: )"\$2[aby]\$[^"]+"', rf'\1"{new_hash}"', content)
+open(filepath, 'w').write(content)
+PYEOF
+        chmod 600 "$INTERNAL_USERS_YML"
+        echo "internal_users.yml — all user hashes updated."
+        echo "  hash : $NEW_HASH"
+        echo ""
+        echo "NOTE: New certificates invalidate any existing cluster data."
+        echo "      Wipe data directories before the next cluster start:"
+        echo "      rm -rf $SCRIPT_DIR/assets/opensearch/data/os0{1,2,3,4,5}data/*"
+    fi
+fi
