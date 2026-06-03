@@ -341,6 +341,38 @@ if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
     ES_FLAG="--elasticsearch"
 fi
 
+# Auto-detect an existing (non-empty) Koha database so that a plain container
+# restart — e.g. after a machine reboot or a bare `docker compose up` — does NOT
+# fail with "Database is not empty!" from do_all_you_can_do.pl (line 89).
+#
+# Logic:
+#  1. If the operator explicitly set USE_EXISTING_DB=yes in env/.env, honour it.
+#  2. Otherwise probe the database: if systempreferences or borrowers already have
+#     rows the DB was previously populated; automatically pass --use-existing-db.
+#  3. If the DB is empty (or the probe fails), proceed with a fresh installation.
+if [ "${USE_EXISTING_DB}" != "yes" ]; then
+    echo "[db-detect] Probing '${DB_NAME}' for existing Koha data..."
+    _db_populated=$(mysql \
+        --host="${DB_HOSTNAME}" \
+        --user="${DB_USER}" \
+        --password="${DB_PASSWORD}" \
+        --batch --skip-column-names \
+        "${DB_NAME}" \
+        -e "SELECT IF(
+              (SELECT COUNT(*) FROM information_schema.tables
+               WHERE table_schema = DATABASE()
+               AND table_name IN ('systempreferences','borrowers')) > 0,
+            'yes', 'no');" 2>/dev/null || echo "no")
+    if [ "${_db_populated:-no}" = "yes" ]; then
+        echo "[db-detect] Existing Koha data found — enabling --use-existing-db automatically"
+        echo "[db-detect] Tip: set USE_EXISTING_DB=yes in env/.env to skip this probe"
+        USE_EXISTING_DB="yes"
+    else
+        echo "[db-detect] Database is empty — proceeding with fresh Koha installation"
+    fi
+    unset _db_populated
+fi
+
 if [ "${USE_EXISTING_DB}" = "yes" ]; then
     USE_EXISTING_DB_FLAG="--use-existing-db"
 fi

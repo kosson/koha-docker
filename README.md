@@ -113,6 +113,14 @@ ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: Y
 ./stack.sh start
 ```
 
+**Resuming after a machine reboot or a normal stop** — the `koha-db-data` volume persists across reboots and `./stack.sh stop`. Use `--no-fresh-db` to resume without wiping the database:
+
+```bash
+./stack.sh start --no-fresh-db
+```
+
+> If you forget `--no-fresh-db` and run a plain `./stack.sh start` after a reboot, the database will be dropped and rebuilt from scratch, losing any data entered since the last `./stack.sh start --build` or `./stack.sh reset`. Only use the plain `./stack.sh start` (or `./stack.sh restart`) when you intentionally want a clean slate.
+
 `stack.sh` waits for each service health check before proceeding and tails the logs automatically. Startup takes **3–8 minutes** on first run depending on hardware. When Koha is ready, a summary box is printed with all URLs and credentials.
 
 Look into the structure of the management script: [Automated startup — `stack.sh`](#automated-startup----stacksh)
@@ -388,6 +396,18 @@ These flags work with both `start` and `restart`:
 ./stack.sh restart --no-fresh-db  # Recreate Koha only (keep existing data)
 ```
 
+### Restarting after a machine reboot
+
+When the host machine is rebooted the `koha-db-data` Docker volume persists — the database is still fully populated. Starting the stack as usual with `./stack.sh start` would drop and recreate the database (default `FRESH_DB=true` behaviour). To resume where you left off **without wiping your data**, always use `--no-fresh-db`:
+
+```bash
+./stack.sh start --no-fresh-db
+```
+
+`run.sh` contains an auto-detection probe that queries `information_schema.tables` for the Koha tables (`systempreferences`, `borrowers`). If they are found it automatically passes `--use-existing-db` to `do_all_you_can_do.pl`, which skips the fresh-install path and reuses the existing schema. If `USE_EXISTING_DB=yes` is already set in the environment (as `stack.sh --no-fresh-db` exports it), the probe is skipped entirely for speed.
+
+> **Why this matters:** without this detection, a plain `docker compose up` or `./stack.sh start` on a machine with an existing database volume would cause the Koha container to exit immediately with `Database is not empty! at do_all_you_can_do.pl line 89` (exit code 255), and the stack would not come up at all.
+
 ### `reset` command
 
 `reset` performs a **full teardown** of the entire stack — all containers are removed and all named Docker volumes are deleted. This is the equivalent of starting completely from scratch.
@@ -423,6 +443,53 @@ After a successful reset, run a full start to reinitialise everything:
 |---|---|---|---|
 | `stop` | Stopped (kept) | Preserved | Normal end-of-day shutdown; resume with `start --no-fresh-db` |
 | `reset` | Removed | **Deleted** | Database is corrupt, you want a clean slate, or you are reclaiming disk space |
+
+---
+
+## Regression tests — `tests/`
+
+The `tests/` directory contains a small TAP-format shell test suite. The tests guard against known regressions and can be run without a running stack (except the integration test, which auto-skips when the stack is down).
+
+```bash
+# Run the full suite from the koha-docker/ directory
+bash tests/run_all_tests.sh
+```
+
+Expected output when the stack is not running:
+
+```
+=== test_run_sh_static.sh ===
+ok 1 - …
+…
+1..13
+PASS: 13  FAIL: 0
+
+=== test_db_detection_unit.sh ===
+ok 1 - …
+…
+1..7
+PASS: 7  FAIL: 0
+
+=== test_restart_integration.sh ===
+ok 1 - db container is running # SKIP stack not running
+ok 2 - koha restarts without exit-255 # SKIP stack not running
+ok 3 - koha startup banner appears # SKIP stack not running
+1..3
+PASS: 0  FAIL: 0  SKIP: 3
+
+All test suites passed (or skipped).
+```
+
+### Test files
+
+| File | Type | What it checks |
+|---|---|---|
+| `tests/test_run_sh_static.sh` | Static (grep) | 13 assertions that the DB auto-detection fix is correctly present in `files/run.sh` |
+| `tests/test_db_detection_unit.sh` | Unit (mock `mysql`) | 7 assertions covering all branches of the detection logic: empty DB, non-empty DB, pre-set variable, `mysql` failure fallback |
+| `tests/test_restart_integration.sh` | Integration (live Docker) | 3 assertions that the Koha container restarts cleanly without exit-255 when `USE_EXISTING_DB=yes`; auto-skips when the stack is not running |
+| `tests/run_all_tests.sh` | Runner | Runs all suites, prints TAP summary, exits 1 on any failure |
+
+The static and unit tests require no Docker; they run in under one second on any machine where `bash` and `mysql` (the MySQL client) are available.
 
 ---
 

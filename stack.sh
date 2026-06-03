@@ -474,7 +474,38 @@ case "${COMMAND}" in
     wait_opensearch_green
     start_support_services
     wait_db_ready
-    [[ "${FRESH_DB}" == true ]] && reset_database
+    if [[ "${FRESH_DB}" == true ]]; then
+      # Warn the user if the database already contains Koha data — an accidental
+      # plain 'start' after a machine reboot would silently wipe everything.
+      _existing=$(docker exec "${DB_CONTAINER}" mysql -uroot -ppassword \
+          --batch --skip-column-names \
+          -e "SELECT IF(
+                (SELECT COUNT(*) FROM information_schema.tables
+                 WHERE table_schema = '${DB_NAME}'
+                 AND table_name = 'systempreferences') > 0,
+              'yes', 'no');" 2>/dev/null || echo "no")
+      if [[ "${_existing}" == "yes" ]]; then
+        echo ""
+        warn "Database '${DB_NAME}' already contains Koha data."
+        warn "Proceeding will DROP and recreate it — ALL DATA WILL BE PERMANENTLY LOST."
+        warn "To resume without wiping, press n and run:  ./stack.sh start --no-fresh-db"
+        echo ""
+        read -rp "$(echo -e "${RED}Type 'yes' to wipe the database and continue, or anything else to cancel:${RESET} ")" _confirm
+        echo ""
+        if [[ "${_confirm}" != "yes" ]]; then
+          log "Start cancelled. Resume with existing data: ./stack.sh start --no-fresh-db"
+          exit 0
+        fi
+      fi
+      unset _existing
+      reset_database
+    else
+      # Tell run.sh the DB already has data — skip the probe and the fresh-install
+      # path in do_all_you_can_do.pl.  Docker Compose picks this up via the
+      # environment: section in docker-compose.yml (USE_EXISTING_DB: ${USE_EXISTING_DB}).
+      export USE_EXISTING_DB=yes
+      log "--no-fresh-db: USE_EXISTING_DB=yes exported to Koha container"
+    fi
     start_koha
     echo ""
     log "Koha container is running and initialising."
