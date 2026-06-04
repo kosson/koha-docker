@@ -3,7 +3,7 @@
 # NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files/run.sh).
 # Editing this file on the host has NO effect until the image is rebuilt:
 #   ./stack.sh start -b   (or docker compose build)
-# RUN_SH_VERSION=2026-05-22
+# RUN_SH_VERSION=2026-06-04
 
 set -e
 
@@ -345,23 +345,25 @@ fi
 # restart — e.g. after a machine reboot or a bare `docker compose up` — does NOT
 # fail with "Database is not empty!" from do_all_you_can_do.pl (line 89).
 #
+# Uses root credentials via /etc/mysql/koha-common.cnf (written above) so the
+# probe works regardless of whether koha_${KOHA_INSTANCE} user grants are in place.
+#
 # Logic:
-#  1. If the operator explicitly set USE_EXISTING_DB=yes in env/.env, honour it.
-#  2. Otherwise probe the database: if systempreferences or borrowers already have
-#     rows the DB was previously populated; automatically pass --use-existing-db.
-#  3. If the DB is empty (or the probe fails), proceed with a fresh installation.
+#  1. If the operator explicitly set USE_EXISTING_DB=yes (env/.env or stack.sh
+#     --no-fresh-db export), honour it and skip the probe.
+#  2. Otherwise probe the database: if 'systempreferences' already exists in the
+#     schema the DB was previously populated — automatically pass --use-existing-db.
+#  3. If the table is absent (or the probe fails), proceed with a fresh installation.
+USE_EXISTING_DB_FLAG=""
 if [ "${USE_EXISTING_DB}" != "yes" ]; then
     echo "[db-detect] Probing '${DB_NAME}' for existing Koha data..."
     _db_populated=$(mysql \
-        --host="${DB_HOSTNAME}" \
-        --user="${DB_USER}" \
-        --password="${DB_PASSWORD}" \
+        --defaults-file=/etc/mysql/koha-common.cnf \
         --batch --skip-column-names \
-        "${DB_NAME}" \
         -e "SELECT IF(
               (SELECT COUNT(*) FROM information_schema.tables
-               WHERE table_schema = DATABASE()
-               AND table_name IN ('systempreferences','borrowers')) > 0,
+               WHERE table_schema = '${DB_NAME}'
+               AND table_name = 'systempreferences') > 0,
             'yes', 'no');" 2>/dev/null || echo "no")
     if [ "${_db_populated:-no}" = "yes" ]; then
         echo "[db-detect] Existing Koha data found — enabling --use-existing-db automatically"
