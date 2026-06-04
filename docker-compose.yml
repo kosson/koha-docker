@@ -57,6 +57,9 @@ services:
             # "Database is not empty!" guard.  run.sh also auto-detects this, but
             # an explicit override avoids the extra DB probe on every restart.
             USE_EXISTING_DB: ${USE_EXISTING_DB:-}
+            # Root password for the MariaDB container — must match MYSQL_ROOT_PASSWORD
+            # on the db service. Set in env/.env as KOHA_DB_ROOT_PASSWORD.
+            KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
             # Public-facing HTTP port for URL generation (OPACBaseURL / staffClientBaseURL).
             # Must match TRAEFIK_HTTP_PORT. Port 80 = no port suffix in browser URLs.
             KOHA_PUBLIC_PORT: ${KOHA_PUBLIC_PORT:-80}

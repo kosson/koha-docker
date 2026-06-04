@@ -46,6 +46,8 @@ koha-docker/
 | Available disk space | ≥ 15 GB | Images + Koha source + OS data |
 | Host user UID | **1000** | The Koha source dir must be owned by UID 1000 |
 
+
+
 ### Koha source tree
 
 Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:
@@ -56,6 +58,20 @@ git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
 ```
 
 The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match.
+
+### Security-critical environment variables
+
+> **Before starting the stack for the first time**, open `env/.env` and change every variable marked below. Leaving any of them at the default value is safe only on a local throwaway machine with no external network access.
+
+| Variable | Where | Default (insecure) | What to set |
+|---|---|---|---|
+| `KOHA_DB_ROOT_PASSWORD` | `env/.env` | `password` | Strong password for the MariaDB `root` account. Flows to `MYSQL_ROOT_PASSWORD` on the `db` container **and** to `/etc/mysql/koha-common.cnf` inside the Koha container. Must match on both sides — see [Changing the root password on an existing stack](#important-changing-the-password-on-an-existing-stack) in `TRACKER.md` if rotating after first start. |
+| `KOHA_DB_PASSWORD` | `env/.env` | `password` | Password for the `koha_kohadev` MariaDB application user. |
+| `OPENSEARCH_INITIAL_ADMIN_PASSWORD` | `env/.env` **and** `OpenSearch-3.6/.env` | `test@Cici24#ANA` | OpenSearch cluster `admin` password. **Must be identical in both files.** If you change it, re-run `OpenSearch-3.6/opensearch_local_certificates_creator.sh` to update the bcrypt hash in `internal_users.yml`, then wipe the OS data dirs and restart the cluster. |
+| `ELASTIC_OPTIONS` | `env/.env` | contains `admin:test@Cici24#ANA` | Update the `<userinfo>admin:YOUR_PASSWORD</userinfo>` element to match `OPENSEARCH_INITIAL_ADMIN_PASSWORD`. |
+| `KOHA_PASS` | `env/.env` | `koha` | Password for the Koha superlibrarian web account. |
+
+> **OpenSearch password consistency:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env`, the `<userinfo>` value inside `ELASTIC_OPTIONS`, and `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `OpenSearch-3.6/.env` must all carry the same password. A mismatch causes the Koha container to fail the OpenSearch health check at startup.
 
 ---
 
@@ -188,9 +204,8 @@ Critical values to verify:
 |---|---|---|
 | `DB_IMAGE` | `mariadb:10.11` | MariaDB image |
 | `DB_HOSTNAME` | `db` | Hostname of the MariaDB container |
-| `KOHA_DB_PASSWORD` | `password` | Password for the `koha_kohadev` database user |
-
-The root password is hard-coded to `password` in `docker-compose.yml` (`MYSQL_ROOT_PASSWORD`).
+| `KOHA_DB_ROOT_PASSWORD` | `password` | Root password for the MariaDB container. Shared between the `db` service (`MYSQL_ROOT_PASSWORD`) and the Koha container (`/etc/mysql/koha-common.cnf`). **Change before first start** — see [Security-critical environment variables](#security-critical-environment-variables). |
+| `KOHA_DB_PASSWORD` | `password` | Password for the `koha_kohadev` database user. **Change before first start.** |
 
 ### Koha container image
 

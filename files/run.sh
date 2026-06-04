@@ -142,10 +142,10 @@ export DB_USER="koha_${KOHA_INSTANCE}"
 # TODO: Have bugs pushed so all this is a koha-create parameter
 echo "${KOHA_INSTANCE}:${DB_USER}:${DB_PASSWORD}:${DB_NAME}" > /etc/koha/passwd
 # TODO: Get rid of this hack with the relevant bug
-echo "[client]"                   > /etc/mysql/koha-common.cnf
-echo "host     = ${DB_HOSTNAME}" >> /etc/mysql/koha-common.cnf
-echo "user     = root"           >> /etc/mysql/koha-common.cnf
-echo "password = password"       >> /etc/mysql/koha-common.cnf
+echo "[client]"                              > /etc/mysql/koha-common.cnf
+echo "host     = ${DB_HOSTNAME}"            >> /etc/mysql/koha-common.cnf
+echo "user     = root"                      >> /etc/mysql/koha-common.cnf
+echo "password = ${KOHA_DB_ROOT_PASSWORD}"  >> /etc/mysql/koha-common.cnf
 
 
 echo "[client]"                          > /etc/mysql/koha_${KOHA_INSTANCE}.cnf
@@ -453,8 +453,13 @@ if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
     sed -i 's|\$cmd = "sudo koha-rebuild-zebra -f -v \$instance";|say "Skipping koha-rebuild-zebra in Elasticsearch mode";\n\$cmd = "true";|' \
         "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
 
-    # Keep Elasticsearch rebuild but run it with reduced noise in startup logs.
-    sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr|"\
+    # Keep Elasticsearch rebuild but make it non-fatal.
+    # A stale index, mapping incompatibility, or missing index (common after a
+    # Koha upgrade or image switch) should NOT abort container startup — Koha
+    # remains functional, only searches may be incomplete.
+    # Append '; true' so the overall shell exit code is always 0, and redirect
+    # stderr to a file so we can print it after do_all_you_can_do.pl finishes.
+    sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr; true|"\
         "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
 fi
 
@@ -467,6 +472,16 @@ perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
             --opac-base-url     ${KOHA_OPAC_URL} \
             --intranet-base-url ${KOHA_INTRANET_URL} \
             --gitify_dir        ${BUILD_DIR}/gitify
+
+# Surface any Elasticsearch rebuild errors captured during do_all_you_can_do.pl.
+# The rebuild was made non-fatal above; print errors here so they appear in
+# 'docker compose logs' and the operator knows to investigate.
+if [ -s /tmp/rebuild_elasticsearch.stderr ]; then
+    echo "[elasticsearch] WARNING: Index rebuild encountered errors (startup continues):"
+    cat /tmp/rebuild_elasticsearch.stderr
+    echo "[elasticsearch] Koha is functional but searches may be incomplete."
+    echo "[elasticsearch] To retry: koha-shell ${KOHA_INSTANCE} -p -c 'perl ${BUILD_DIR}/koha/misc/search_tools/rebuild_elasticsearch.pl'"
+fi
 
 # Stop apache2
 service apache2 stop

@@ -2679,3 +2679,324 @@ bash tests/run_all_tests.sh
    ```bash
    bash tests/run_all_tests.sh
    ```
+
+---
+
+## 2026-06-04 — Strengthen db-detect probe: use root credentials via koha-common.cnf
+
+### Problem
+
+The auto-detection probe introduced on 2026-06-03 connected to MariaDB using the Koha application user (`${DB_USER}` / `${DB_PASSWORD}`, i.e. `koha_kohadev`). Two reliability risks existed:
+
+1. The Koha user grants are applied by `do_all_you_can_do.pl` itself — on a very first installation the user may not yet have `INFORMATION_SCHEMA` SELECT privileges when the probe runs.
+2. Using `DATABASE()` in the `WHERE table_schema = DATABASE()` clause returns `NULL` when no default database is selected on the connection, silently falling back to `no` (fresh install) even when data exists.
+
+### Fix — `files/run.sh`
+
+#### Switched credentials to root via `/etc/mysql/koha-common.cnf`
+
+`/etc/mysql/koha-common.cnf` is written at line ~145 of `run.sh`, well before the probe at line ~358. It contains:
+
+```ini
+[client]
+host     = ${DB_HOSTNAME}
+user     = root
+password = ${KOHA_DB_ROOT_PASSWORD}
+```
+
+`KOHA_DB_ROOT_PASSWORD` is read from the container environment (set in `env/.env`; forwarded via `docker-compose.yml`'s `environment:` block). It must match the `MYSQL_ROOT_PASSWORD` used by the `db` service.
+
+The probe was changed from connecting as the Koha application user:
+
+```bash
+_db_populated=$(mysql \
+    --host="${DB_HOSTNAME}" \
+    --user="${DB_USER}" \
+    --password="${DB_PASSWORD}" \
+    --batch --skip-column-names \
+    "${DB_NAME}" \
+    -e "SELECT IF(
+          (SELECT COUNT(*) FROM information_schema.tables
+           WHERE table_schema = DATABASE()
+           AND table_name IN ('systempreferences','borrowers')) > 0,
+        'yes', 'no');" 2>/dev/null || echo "no")
+```
+
+to connecting as root via the cnf file:
+
+```bash
+_db_populated=$(mysql \
+    --defaults-file=/etc/mysql/koha-common.cnf \
+    --batch --skip-column-names \
+    -e "SELECT IF(
+          (SELECT COUNT(*) FROM information_schema.tables
+           WHERE table_schema = '${DB_NAME}'
+           AND table_name = 'systempreferences') > 0,
+        'yes', 'no');" 2>/dev/null || echo "no")
+```
+
+Key differences:
+
+| Aspect | Before | After |
+|---|---|---|
+| Credentials | `koha_kohadev` user (may not have grants yet) | `root` via `/etc/mysql/koha-common.cnf` (always available) |
+| Schema reference | `DATABASE()` — returns NULL without a default DB | Literal `'${DB_NAME}'` — always correct |
+| Tables checked | `systempreferences` OR `borrowers` | `systempreferences` only — sufficient signal, avoids edge cases |
+| No default database passed | Via positional argument `"${DB_NAME}"` | No positional arg needed (schema in WHERE clause) |
+
+#### Explicit `USE_EXISTING_DB_FLAG=""` initialisation
+
+`USE_EXISTING_DB_FLAG` is now explicitly initialised to the empty string immediately before the probe block, guaranteeing the variable is always defined even if Bash `set -u` is ever added:
+
+```bash
+USE_EXISTING_DB_FLAG=""
+if [ "${USE_EXISTING_DB}" != "yes" ]; then
+    …probe…
+fi
+if [ "${USE_EXISTING_DB}" = "yes" ]; then
+    USE_EXISTING_DB_FLAG="--use-existing-db"
+fi
+```
+
+#### Version bump
+
+`RUN_SH_VERSION` updated from `2026-05-22` to `2026-06-04`.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `files/run.sh` | Probe switched to `--defaults-file=/etc/mysql/koha-common.cnf` (root); password read from `${KOHA_DB_ROOT_PASSWORD}`; `WHERE table_schema = '${DB_NAME}'`; single table check (`systempreferences`); added `USE_EXISTING_DB_FLAG=""` initialisation; version bumped to `2026-06-04` |
+| `docker-compose.yml` | Added `KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}` to `koha` service `environment:` block so the variable reaches `run.sh` |
+| `env/defaults.env` | Added security warning comment on `KOHA_DB_ROOT_PASSWORD` |
+| `env/template.env` | Added `KOHA_DB_ROOT_PASSWORD=change_me_before_first_start` with a security note prompting operators to set a strong password |
+
+### How to apply
+
+The image must be rebuilt for this change to take effect:
+
+```bash
+./stack.sh build --build-koha
+docker tag kosson/koha-ubuntu:latest kosson/koha-ubuntu:26.05.01
+docker push kosson/koha-ubuntu:26.05.01
+```
+
+On the production machine:
+
+```bash
+docker pull kosson/koha-ubuntu:26.05.01
+# set KOHA_IMAGE_TAG=kosson/koha-ubuntu:26.05.01 in env/.env
+docker compose stop koha && docker compose rm -f koha
+./stack.sh start --no-fresh-db
+```
+
+---
+
+## 2026-06-04 — Fix container crash: rebuild_elasticsearch.pl non-zero exit kills startup
+
+### Problem
+
+After the db-detect probe correctly identified the existing database and passed `--use-existing-db` to `do_all_you_can_do.pl`, the container still exited with code 1:
+
+```
+koha-1  | Running [sudo koha-shell kohadev -p -c 'PERL5LIB=… perl …/rebuild_elasticsearch.pl' 2>/tmp/rebuild_elasticsearch.stderr]...
+koha-1 exited with code 1
+```
+
+`do_all_you_can_do.pl` ends by calling `rebuild_elasticsearch.pl`. If the script exits non-zero (stale index, mapping mismatch, missing index after an image upgrade, etc.), it propagates the failure code. Because `run.sh` runs under `set -e`, any non-zero exit from `do_all_you_can_do.pl` immediately kills the container.
+
+The error was completely invisible: stderr was redirected to `/tmp/rebuild_elasticsearch.stderr` inside the container with no mechanism to surface it in `docker compose logs`.
+
+### Root cause in context
+
+`rebuild_elasticsearch.pl` can legitimately fail after:
+- Switching to a new Koha image version (index mappings change)
+- The OpenSearch cluster restarting and index state being inconsistent
+- A partial or interrupted previous indexing run
+
+None of these are fatal — Koha continues to operate normally (it falls back to Zebra for searches), and the index can be rebuilt manually. Crashing the entire container on a transient ES error is disproportionate.
+
+### Fix — `files/run.sh`
+
+#### 1. Made the ES rebuild non-fatal inside `do_all_you_can_do.pl`
+
+The existing `sed` patch that mutes `rebuild_elasticsearch.pl` output was extended to append `; true` to the shell command string, so the overall exit code is always 0 regardless of whether indexing succeeds:
+
+```bash
+# Before:
+sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr|" \
+    "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+
+# After:
+sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr; true|" \
+    "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+```
+
+The shell executes `perl …; true` — `true` always exits 0, so `do_all_you_can_do.pl` never sees a failure from this step.
+
+#### 2. Surface errors in container logs after `do_all_you_can_do.pl` finishes
+
+After the `perl do_all_you_can_do.pl …` call, `run.sh` now checks whether `/tmp/rebuild_elasticsearch.stderr` is non-empty and prints its contents:
+
+```bash
+if [ -s /tmp/rebuild_elasticsearch.stderr ]; then
+    echo "[elasticsearch] WARNING: Index rebuild encountered errors (startup continues):"
+    cat /tmp/rebuild_elasticsearch.stderr
+    echo "[elasticsearch] Koha is functional but searches may be incomplete."
+    echo "[elasticsearch] To retry: koha-shell ${KOHA_INSTANCE} -p -c 'perl ${BUILD_DIR}/koha/misc/search_tools/rebuild_elasticsearch.pl'"
+fi
+```
+
+This means:
+
+- The container always starts successfully
+- The operator can see the actual ES error in `docker compose logs koha`
+- A ready-to-run retry command is printed alongside the error
+
+### Behaviour summary
+
+| Scenario | Before | After |
+|---|---|---|
+| `rebuild_elasticsearch.pl` exits 0 | Container starts | Container starts (unchanged) |
+| `rebuild_elasticsearch.pl` exits non-zero | Container crashes (code 1), error invisible | Container starts; error printed to logs with retry hint |
+| ES down or index missing | Container crashes | Container starts; Koha functional; warning in logs |
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `files/run.sh` | `sed` patch for ES rebuild extended with `; true` (non-fatal exit); added post-`do_all_you_can_do.pl` block to surface errors from `/tmp/rebuild_elasticsearch.stderr` in container logs |
+
+### How to apply
+
+Same image rebuild as the db-detect probe improvement above — both changes are included in `RUN_SH_VERSION=2026-06-04`:
+
+```bash
+./stack.sh build --build-koha
+docker tag kosson/koha-ubuntu:latest kosson/koha-ubuntu:26.05.01
+docker push kosson/koha-ubuntu:26.05.01
+```
+
+---
+
+## 2026-06-04 — Security: stop hardcoding MariaDB root password in run.sh
+
+### Problem
+
+`files/run.sh` wrote `/etc/mysql/koha-common.cnf` with a hardcoded literal string:
+
+```ini
+[client]
+host     = ${DB_HOSTNAME}
+user     = root
+password = password
+```
+
+The literal `password` was never read from any environment variable — it was baked into the image regardless of what `KOHA_DB_ROOT_PASSWORD` was set to in `env/.env`. This created two issues:
+
+1. **Credential exposure** — the literal string `password` appeared in `run.sh`, in the built Docker image layer, and in this public TRACKER document. Anyone reading the repository or inspecting the image could infer the root password of every deployment that had not explicitly changed `MYSQL_ROOT_PASSWORD` on the `db` container.
+2. **Functional mismatch** — if an operator changed `KOHA_DB_ROOT_PASSWORD` in `env/.env` (which correctly flowed to `MYSQL_ROOT_PASSWORD` on the `db` service), the `/etc/mysql/koha-common.cnf` inside the Koha container would still carry the old literal `password`, causing the db-detect probe and any other `--defaults-file` MySQL call to fail authentication silently.
+
+`KOHA_DB_ROOT_PASSWORD` already existed in `defaults.env` and was already wired to `MYSQL_ROOT_PASSWORD` on the `db` service via `docker-compose.yml`. The `koha` service simply never received it, and `run.sh` never read it.
+
+### Fix — four coordinated changes
+
+#### 1. `files/run.sh` — read variable instead of hardcoding
+
+Line 148 changed from:
+
+```bash
+echo "password = password"       >> /etc/mysql/koha-common.cnf
+```
+
+to:
+
+```bash
+echo "password = ${KOHA_DB_ROOT_PASSWORD}"  >> /etc/mysql/koha-common.cnf
+```
+
+The cnf now always mirrors whatever root password the `db` container was initialised with.
+
+#### 2. `docker-compose.yml` — forward variable to the `koha` service
+
+`KOHA_DB_ROOT_PASSWORD` was only consumed via `env_file: env/.env`; shell-exported values are not forwarded to containers unless also listed in `environment:`. Added to the `koha` service `environment:` block:
+
+```yaml
+# Root password for the MariaDB container — must match MYSQL_ROOT_PASSWORD
+# on the db service. Set in env/.env as KOHA_DB_ROOT_PASSWORD.
+KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
+```
+
+The `:-password` fallback preserves backwards compatibility with existing deployments that never set the variable explicitly.
+
+#### 3. `env/defaults.env` — add security warning comment
+
+```bash
+# SECURITY: change this from the default before running in any non-throwaway environment.
+# Must match MYSQL_ROOT_PASSWORD on the db service. Used by run.sh to write
+# /etc/mysql/koha-common.cnf (root credentials for internal admin operations).
+KOHA_DB_ROOT_PASSWORD=password
+```
+
+#### 4. `env/template.env` — prompt operators to set a real password
+
+Changed the template value from the implicit default to:
+
+```bash
+# SECURITY: set a strong password here. This becomes both MYSQL_ROOT_PASSWORD for
+# the db container and the credential written to /etc/mysql/koha-common.cnf inside
+# the Koha container. Never leave this as 'password' in a networked environment.
+KOHA_DB_ROOT_PASSWORD=change_me_before_first_start
+```
+
+A `cp env/template.env env/.env` now forces the operator to actively choose a password before the stack will authenticate correctly.
+
+### Important: changing the password on an existing stack
+
+`MYSQL_ROOT_PASSWORD` is set once when the `koha-db-data` named volume is first created. Changing `KOHA_DB_ROOT_PASSWORD` in `env/.env` after that point updates the cnf file inside the Koha container, but MariaDB still uses the old password from the volume. To rotate the root password on an existing stack:
+
+```bash
+# 1. Connect with the current password
+docker exec -it koha-db-1 mariadb -uroot -p<OLD_PASSWORD>
+
+# 2. Inside MariaDB:
+ALTER USER 'root'@'%' IDENTIFIED BY '<NEW_PASSWORD>';
+FLUSH PRIVILEGES;
+EXIT;
+
+# 3. Update env/.env
+# KOHA_DB_ROOT_PASSWORD=<NEW_PASSWORD>
+
+# 4. Restart to pick up the new cnf
+docker compose stop koha && docker compose rm -f koha
+./stack.sh start --no-fresh-db
+```
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `files/run.sh` | Line 148: `password = ${KOHA_DB_ROOT_PASSWORD}` instead of literal `password` |
+| `docker-compose.yml` | Added `KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}` to `koha` service `environment:` block |
+| `env/defaults.env` | Added `# SECURITY:` warning comment on `KOHA_DB_ROOT_PASSWORD` |
+| `env/template.env` | `KOHA_DB_ROOT_PASSWORD=change_me_before_first_start` with security note |
+
+### How to apply
+
+The image must be rebuilt for the `run.sh` change to take effect:
+
+```bash
+./stack.sh build --build-koha
+docker tag kosson/koha-ubuntu:latest kosson/koha-ubuntu:26.05.01
+docker push kosson/koha-ubuntu:26.05.01
+```
+
+On the production machine:
+
+```bash
+docker pull kosson/koha-ubuntu:26.05.01
+# set KOHA_IMAGE_TAG=kosson/koha-ubuntu:26.05.01 in env/.env
+# set KOHA_DB_ROOT_PASSWORD to your actual root password in env/.env
+docker compose stop koha && docker compose rm -f koha
+./stack.sh start --no-fresh-db
+```
