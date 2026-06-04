@@ -159,7 +159,9 @@ append_if_absent "Listen ${KOHA_INTRANET_PORT}" /etc/apache2/ports.conf
 append_if_absent "Listen ${KOHA_OPAC_PORT}"     /etc/apache2/ports.conf
 
 # Pull the names of the environment variables to substitute from defaults.env and convert them to a string of the format "$VAR1:$VAR2:$VAR3", etc.
-VARS_TO_SUB=`cut -d '=' -f1 ${BUILD_DIR}/templates/defaults.env  | tr '\n' ':' | sed -e 's/:/:$/g' | awk '{print "$"$1}' | sed -e 's/:\$$//'`
+# grep filters out blank lines and comment lines (lines starting with #) so that
+# comment lines with spaces don't truncate the awk field-split output.
+VARS_TO_SUB=$(grep -v '^[[:space:]]*#' "${BUILD_DIR}/templates/defaults.env" | grep '=' | cut -d '=' -f1 | tr '\n' ':' | sed -e 's/:/:$/g' | sed -e 's/:\$$//' | sed -e 's/^/\$/')
 # Add additional vars to sub from this script that are not in defaults.env
 VARS_TO_SUB="\$DB_NAME:\$DB_PASSWORD:\$DB_USER:\$BUILD_DIR:$VARS_TO_SUB";
 
