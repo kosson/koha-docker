@@ -58,6 +58,7 @@ KOHA_OPAC_PORT="$(_env_val      "${KOHA_ENV_FILE}" KOHA_OPAC_PORT      8080)"
 KOHA_INTRANET_PORT="$(_env_val  "${KOHA_ENV_FILE}" KOHA_INTRANET_PORT  8081)"
 KOHA_USER="$(_env_val "${KOHA_ENV_FILE}" KOHA_USER koha)"
 KOHA_PASS="$(_env_val "${KOHA_ENV_FILE}" KOHA_PASS koha)"
+KOHA_DB_ROOT_PASSWORD="$(_env_val "${KOHA_ENV_FILE}" KOHA_DB_ROOT_PASSWORD password)"
 TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT 80)"
 TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT 443)"
 TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT 8083)"
@@ -222,7 +223,8 @@ wait_db_ready() {
   local attempts=0 max=30  # 60 seconds
   while (( attempts < max )); do
     if docker exec "${DB_CONTAINER}" \
-        mysqladmin ping -uroot -ppassword --silent 2>/dev/null; then
+        mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" \
+        --batch --skip-column-names -e 'SELECT 1;' >/dev/null 2>&1; then
       ok "MariaDB is ready."
       return 0
     fi
@@ -231,19 +233,19 @@ wait_db_ready() {
     sleep 2
   done
   echo ""
-  die "MariaDB did not become ready after $(( max * 2 )) seconds."
+  die "MariaDB did not become ready after $(( max * 2 )) seconds. Check KOHA_DB_ROOT_PASSWORD in env/.env. If koha-db-data already exists from an older password, run './stack.sh reset' (destructive) or restore the old password in env/.env."
 }
 
 reset_database() {
   hdr "Recreating Koha database"
   log "Dropping and recreating '${DB_NAME}'..."
-  docker exec "${DB_CONTAINER}" mysql -uroot -ppassword -e "
+  docker exec "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" -e "
     DROP DATABASE IF EXISTS ${DB_NAME};
     CREATE DATABASE ${DB_NAME}
       CHARACTER SET utf8mb4
       COLLATE utf8mb4_unicode_ci;
     GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
-    FLUSH PRIVILEGES;"
+    FLUSH PRIVILEGES;" || die "MariaDB root authentication failed while recreating ${DB_NAME}. Verify KOHA_DB_ROOT_PASSWORD in env/.env matches the password used when the existing koha-db-data volume was first initialized."
   ok "Database '${DB_NAME}' ready."
 }
 
@@ -477,7 +479,7 @@ case "${COMMAND}" in
     if [[ "${FRESH_DB}" == true ]]; then
       # Warn the user if the database already contains Koha data — an accidental
       # plain 'start' after a machine reboot would silently wipe everything.
-      _existing=$(docker exec "${DB_CONTAINER}" mysql -uroot -ppassword \
+      _existing=$(docker exec "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" \
           --batch --skip-column-names \
           -e "SELECT IF(
                 (SELECT COUNT(*) FROM information_schema.tables

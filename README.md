@@ -115,13 +115,24 @@ Requirments for a viable password for OpenSearch:
 ./stack.sh start --build
 ```
 
-If you run into this little bug, just run again the command. The error:
+If you see this error during startup:
 
 ```txt
-─ Recreating Koha database ──
-[10:20:32] Dropping and recreating 'koha_kohadev'...
+── Recreating Koha database ──
+[hh:mm:ss] Dropping and recreating 'koha_kohadev'...
 ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)
 ```
+
+it means the MariaDB root password used by the script does not match the password stored in the current `koha-db-data` volume.
+
+Quick checks and recovery:
+
+1. Verify `KOHA_DB_ROOT_PASSWORD` in `env/.env`.
+2. If the volume was created with an older password, either:
+  - restore that old password in `env/.env`, or
+  - run `./stack.sh reset` (destructive: removes DB/OpenSearch volumes) and start fresh.
+
+`stack.sh` now uses `KOHA_DB_ROOT_PASSWORD` from `env/.env` for DB readiness and recreate steps; rerunning the same command without fixing password drift will not solve the issue.
 
 **Every subsequent run** — images are already in the local cache:
 
