@@ -76,6 +76,11 @@ Rename the template.env file to `.env`. Open `env/.env` and update **at minimum*
 
 Everything else has workable defaults. See [Initial configuration](#initial-configuration). You still need to modify `SYNC_REPO` to reflect the path on your machine as mentioned. Now, if you modified the `ELASTIC_OPTION` password and as a consquence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD`, you need to make sure you modify the `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder.
 
+Requirments for a viable password for OpenSearch:
+
+- minimum length 10
+- uppercase + lowercase + digit + special character
+
 > **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
 > `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
 
