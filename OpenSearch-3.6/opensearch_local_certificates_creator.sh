@@ -63,11 +63,11 @@ echo "Store these values securely — they are required to restore the cluster."
 # --- Secure file permissions -------------------------------------------------------
 # Config files and private keys must not be world-readable. The Security plugin will
 # log permission warnings at startup if these are not set correctly.
-find "$SCRIPT_DIR/assets/ssl"                        -type f -name "*.pem" | xargs chmod 600
-find "$SCRIPT_DIR/assets/opensearch/config"          -type d               | xargs chmod 700
-find "$SCRIPT_DIR/assets/opensearch/config"          -type f               | xargs chmod 600
-find "$SCRIPT_DIR/assets/opensearch/performance-analyzer" -type f          | xargs chmod 600 2>/dev/null || true
-echo "File permissions set (certs: 600, config dirs: 700, config files: 600)."
+find "$SCRIPT_DIR/assets/ssl"                        -type f -name "*.pem" | xargs chmod 775
+find "$SCRIPT_DIR/assets/opensearch/config"          -type d               | xargs chmod 775
+find "$SCRIPT_DIR/assets/opensearch/config"          -type f               | xargs chmod 775
+find "$SCRIPT_DIR/assets/opensearch/performance-analyzer" -type f          | xargs chmod 775 2>/dev/null || true
+echo "File permissions set (certs: 775, config dirs: 775, config files: 775)."
 
 # --- Update internal_users.yml password hash ----------------------------------------
 # Read OPENSEARCH_INITIAL_ADMIN_PASSWORD from .env and regenerate the bcrypt hash for

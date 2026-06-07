@@ -11,32 +11,6 @@ You need to have a fairly well endowed computer to run these services. All the f
 
 Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the version is Koha 25.12.00. Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing engine (OpenSearch), and a proxy for accessing the installation in the browser (Traefik).
 
-## Repository layout
-
-```
-koha-docker/
-├── stack.sh                     # Automated lifecycle manager (start/stop/restart/reset/status/logs)
-├── docker-compose.yml           # Main stack: koha, db (MariaDB), memcached
-├── Dockerfile                   # Koha dev container (Ubuntu 24.04 Noble)
-├── env/
-│   └── .env                     # All runtime settings — edit before first start
-├── files/
-│   └── templates/
-│       └── koha-conf-site.xml.in  # koha-conf.xml template (uses envsubst)
-├── koha/                        # Host-mounted Koha source tree (git clone)
-└── OpenSearch-3.6/              # External 5-node OpenSearch 3.6 cluster
-    ├── docker-compose.yml
-    ├── .env                     # OpenSearch version + admin password
-    ├── opensearch_installer_vars.cfg          # Variables used by the cert generator
-    ├── opensearch_local_certificates_creator.sh  # ONE-TIME: generate all TLS certs
-    └── assets/
-        ├── opensearch/
-        │   └── Dockerfile       # Custom image with analysis-icu plugin
-        └── ssl/                 # Pre-generated TLS certificates (committed)
-```
-
----
-
 ## Prerequisites
 
 | Requirement | Version | Notes |
@@ -45,8 +19,6 @@ koha-docker/
 | Docker Compose (plugin) | v2.20+ | `docker compose version` |
 | Available disk space | ≥ 15 GB | Images + Koha source + OS data |
 | Host user UID | **1000** | The Koha source dir must be owned by UID 1000 |
-
-
 
 ### Koha source tree
 
@@ -106,6 +78,29 @@ Everything else has workable defaults. See [Initial configuration](#initial-conf
 
 > **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
 > `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
+
+> **Credential drift note (important):** If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
+>
+> Keep these values aligned every time you rotate credentials:
+> - `env/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+> - `OpenSearch-3.6/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+> - `env/.env` -> `ELASTIC_OPTIONS` (`<userinfo>admin:...`)
+> - `OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml` -> `opensearch.password`
+>
+> After changing credentials, apply and refresh:
+>
+> ```bash
+> cd OpenSearch-3.6
+> set -a && source .env && set +a && bash initial_api_calls.sh
+> docker compose up -d --force-recreate os01
+> docker compose ps os01 dashboards
+> ```
+>
+> Recommended check:
+>
+> ```bash
+> bash tests/test_opensearch_os01_auth_integration.sh
+> ```
 
 ### 4. Start the stack
 
