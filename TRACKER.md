@@ -1,5 +1,86 @@
 # Koha Docker — Change Tracker
 
+## 2026-06-08 - Avoid Docker Hub login for OpenSearch custom image
+
+### Problem
+
+On a fresh machine, starting the stack could fail with:
+
+```txt
+pull access denied for kosson/opensearch-icu, repository does not exist or may require 'docker login'
+```
+
+This happened when the custom OpenSearch image tag (`kosson/opensearch-icu:${OPEN_SEARCH_VERSION}`) was not available locally and Compose attempted an image pull path.
+
+### Root cause
+
+- OpenSearch services use a custom image tag shared by `os01`-`os05`.
+- On first run, if that tag is missing locally, startup could try to resolve it via Docker Hub instead of ensuring a local build first.
+
+### Changes made
+
+Files updated:
+
+- `OpenSearch-3.6/docker-compose.yml`
+  - Added `pull_policy: never` to service `os01` (already present on `os02`-`os05`).
+- `stack.sh`
+  - In `start_opensearch()`, added a preflight image check.
+  - If `kosson/opensearch-icu:${OPEN_SEARCH_VERSION}` is missing locally, `build_opensearch` is invoked automatically before `docker compose up -d`.
+
+### Effect
+
+- Users are no longer required to run `docker login` for this custom image.
+- First startup auto-builds the image locally when needed, then starts the cluster.
+- Subsequent starts reuse the local image and skip rebuild unless explicitly requested.
+
+---
+
+## 2026-06-08 - Rootless Docker privileged-port startup fix (Traefik)
+
+### Problem
+
+On first `./stack.sh start`, Traefik failed with:
+
+```txt
+cannot expose privileged port 80 ...
+net.ipv4.ip_unprivileged_port_start=1024
+```
+
+Host diagnostics confirmed Docker is running in rootless mode and cannot bind ports below 1024 by default.
+
+### Root cause
+
+Traefik was configured to publish privileged host ports (`80`/`443`) in `traefik/.env`, while the host kernel policy for unprivileged binds was `1024`.
+
+### Changes made
+
+Files updated:
+
+- `traefik/.env`
+  - `TRAEFIK_HTTP_PORT=80` -> `TRAEFIK_HTTP_PORT=8000`
+  - `TRAEFIK_HTTPS_PORT=443` -> `TRAEFIK_HTTPS_PORT=8443`
+- `env/.env`
+  - `KOHA_PUBLIC_PORT=80` -> `KOHA_PUBLIC_PORT=8000`
+
+### Effect
+
+- Traefik now binds only non-privileged host ports in rootless Docker, so startup is deterministic and no longer fails on port-80 permission errors.
+- Koha-generated public URLs remain consistent with Traefik by using port `8000`.
+- Access endpoints become:
+  - OPAC/Staff via Traefik HTTP: `http://<host-or-domain>:8000`
+  - Traefik HTTPS: `https://<host-or-domain>:8443`
+
+### Apply/run notes
+
+Restart the stack so new env values are applied:
+
+```bash
+./stack.sh stop
+./stack.sh start
+```
+
+---
+
 ## 2026-06-07 — Fix intermittent ERROR 1045 during DB recreate after startup
 
 ### Problem

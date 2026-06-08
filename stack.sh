@@ -175,6 +175,16 @@ build_koha() {
 # ---------------------------------------------------------------------------
 start_opensearch() {
   hdr "Starting OpenSearch 3.6 cluster"
+  local os_ver os_img
+  os_ver="$(_env_val "${OPENSEARCH_DIR}/.env" OPEN_SEARCH_VERSION 3.6.0)"
+  os_img="kosson/opensearch-icu:${os_ver}"
+
+  # Ensure first run works without Docker Hub access: build locally when missing.
+  if ! docker image inspect "${os_img}" >/dev/null 2>&1; then
+    log "Local image ${os_img} not found. Building it now (no Docker Hub login required)..."
+    build_opensearch
+  fi
+
   pushd "${OPENSEARCH_DIR}" > /dev/null
   docker compose up -d
   popd > /dev/null

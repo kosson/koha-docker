@@ -20,6 +20,34 @@ Building a cluster of Docker containers that gives the possibility to work with 
 | Available disk space | ≥ 15 GB | Images + Koha source + OS data |
 | Host user UID | **1000** | The Koha source dir must be owned by UID 1000 |
 
+### Rootless Docker note
+
+If Docker runs in rootless mode, binding privileged host ports below 1024 (for example 80/443) is blocked by default.
+
+What to expect:
+
+- Startup may fail while starting Traefik with an error similar to:
+
+```txt
+cannot expose privileged port 80
+net.ipv4.ip_unprivileged_port_start=1024
+```
+
+If the Docker stack is configured to work in rootless mode when Traefik host ports are non-privileged (`>=1024`).
+
+What to do:
+
+1. Keep Traefik host ports non-privileged in `traefik/.env` (recommended), for example `TRAEFIK_HTTP_PORT=8000` and `TRAEFIK_HTTPS_PORT=8443`.
+2. Keep `KOHA_PUBLIC_PORT` in `env/.env` aligned with `TRAEFIK_HTTP_PORT`.
+3. If you intentionally need 80/443 in rootless mode, configure the host accordingly (for example `net.ipv4.ip_unprivileged_port_start=80`) or run rootful Docker.
+
+Quick check:
+
+```bash
+docker info --format '{{json .SecurityOptions}}'
+sysctl net.ipv4.ip_unprivileged_port_start
+```
+
 ### Koha source tree
 
 Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:

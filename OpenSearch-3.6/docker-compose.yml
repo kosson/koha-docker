@@ -8,6 +8,7 @@ services:
     # The build above is tagged with the image: name below so that os02–os05 can
     # reference the same image without needing their own build: blocks.
     image: kosson/opensearch-icu:${OPEN_SEARCH_VERSION}
+    pull_policy: never
     # user: "1000"
     container_name: os01
     volumes:
