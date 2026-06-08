@@ -1,5 +1,57 @@
 # Koha Docker — Change Tracker
 
+## 2026-06-08 - Rootless Docker rlimit memlock failure (OpenSearch)
+
+### Problem
+
+All five OpenSearch node containers failed to start with:
+
+```txt
+failed to create shim task: OCI runtime create failed: runc create failed:
+unable to start container process: error during container init:
+error setting rlimits for ready process: error setting rlimit type 8: operation not permitted
+```
+
+`rlimit type 8` is `RLIMIT_MEMLOCK`. Rootless Docker (via RootlessKit) cannot raise the memlock limit to unlimited (`-1`) because it has no `CAP_SYS_RESOURCE` capability.
+
+### Root cause
+
+All five node services in `OpenSearch-3.6/docker-compose.yml` had:
+
+```yaml
+ulimits:
+  memlock:
+    soft: -1
+    hard: -1
+```
+
+and:
+
+```yaml
+- bootstrap.memory_lock=true
+```
+
+Unlimited memlock requires `CAP_SYS_RESOURCE`, which rootless containers do not have.
+
+### Changes made
+
+File updated: `OpenSearch-3.6/docker-compose.yml` — all five node services (`os01`–`os05`):
+
+- Removed the `memlock:` block from `ulimits:` entirely.
+- Changed `bootstrap.memory_lock=true` → `bootstrap.memory_lock=false`.
+
+### Effect
+
+- OpenSearch nodes start normally in rootless Docker.
+- Memory locking is disabled: JVM heap can be swapped under memory pressure. Acceptable for development; for production consider running rootful Docker or granting the capability via `sysctl`.
+- `nofile` ulimit (65536) is retained — it does not require elevated privileges.
+
+### README updated
+
+The *Rootless Docker note* in `README.md` prerequisites now covers both the Traefik port-bind failure and this memlock rlimit failure, with the exact error text and resolution for each.
+
+---
+
 ## 2026-06-08 - Avoid Docker Hub login for OpenSearch custom image
 
 ### Problem

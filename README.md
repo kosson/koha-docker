@@ -22,24 +22,30 @@ Building a cluster of Docker containers that gives the possibility to work with 
 
 ### Rootless Docker note
 
-If Docker runs in rootless mode, binding privileged host ports below 1024 (for example 80/443) is blocked by default.
+If Docker runs in rootless mode, two startup failures can occur out of the box.
 
-What to expect:
+**1. Privileged port bind failure (Traefik)**
 
-- Startup may fail while starting Traefik with an error similar to:
+Startup fails while starting Traefik:
 
 ```txt
 cannot expose privileged port 80
 net.ipv4.ip_unprivileged_port_start=1024
 ```
 
-If the Docker stack is configured to work in rootless mode when Traefik host ports are non-privileged (`>=1024`).
+Fix: use non-privileged ports in `traefik/.env` — this is already the default in this repo (`TRAEFIK_HTTP_PORT=8000`, `TRAEFIK_HTTPS_PORT=8443`). Keep `KOHA_PUBLIC_PORT` in `env/.env` aligned with `TRAEFIK_HTTP_PORT`. If you need ports 80/443, lower the kernel threshold: `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80`.
 
-What to do:
+**2. Unlimited memlock rlimit failure (OpenSearch)**
 
-1. Keep Traefik host ports non-privileged in `traefik/.env` (recommended), for example `TRAEFIK_HTTP_PORT=8000` and `TRAEFIK_HTTPS_PORT=8443`.
-2. Keep `KOHA_PUBLIC_PORT` in `env/.env` aligned with `TRAEFIK_HTTP_PORT`.
-3. If you intentionally need 80/443 in rootless mode, configure the host accordingly (for example `net.ipv4.ip_unprivileged_port_start=80`) or run rootful Docker.
+Startup fails while creating any OpenSearch container:
+
+```txt
+failed to create shim task: OCI runtime create failed: runc create failed:
+unable to start container process: error during container init:
+error setting rlimits for ready process: error setting rlimit type 8: operation not permitted
+```
+
+`rlimit type 8` is `RLIMIT_MEMLOCK`. Rootless containers cannot set it to unlimited (`-1`). This is already fixed in this repo: all OpenSearch nodes use `bootstrap.memory_lock=false` and have no `memlock` ulimit entry. If you see this error after reverting or editing the compose file, ensure no `memlock:` block exists under `ulimits:` in `OpenSearch-3.6/docker-compose.yml`.
 
 Quick check:
 
