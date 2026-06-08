@@ -118,7 +118,7 @@ check_prereqs() {
 
 # ---------------------------------------------------------------------------
 # Docker network
-# ---------------------------------------------------------------------------
+# Create the frontend network. Used for the main Koha + Traefik paths.
 ensure_frontend_network() {
   if ! docker network inspect frontend >/dev/null 2>&1; then
     log "Creating 'frontend' Docker network (required by Traefik)..."
@@ -127,6 +127,21 @@ ensure_frontend_network() {
   else
     ok "Network 'frontend' already exists."
   fi
+}
+
+# Ensure required external networks exist before starting any stack that references
+# them. Used by the Koha and OpenSearch compose files.
+ensure_extra_networks() {
+  local net name
+  for net in knonikl opensearch-36_osearch; do
+    if ! docker network inspect "$net" >/dev/null 2>&1; then
+      log "Creating '$net' Docker network..."
+      docker network create "$net"
+      ok "Network '$net' created."
+    else
+      ok "Network '$net' already exists."
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -224,6 +239,7 @@ stop_opensearch() {
 # ---------------------------------------------------------------------------
 start_support_services() {
   hdr "Starting MariaDB + Memcached"
+  ensure_extra_networks
   koha_compose up -d db memcached
   ok "Support services started."
 }

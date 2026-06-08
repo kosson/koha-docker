@@ -47,11 +47,14 @@ services:
       - cluster.name=${OS_CLUSTER_NAME}
       - discovery.seed_hosts=os01,os02,os03,os04,os05 # Nodes to look for when discovering the cluster
       - cluster.initial_cluster_manager_nodes=os01,os02 # Nodes eligible to serve as cluster manager
-      - bootstrap.memory_lock=false # Rootless Docker cannot set unlimited memlock (rlimit type 8)
+      - bootstrap.memory_lock=true # Disable JVM heap memory swapping
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
       - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
       - DISABLE_INSTALL_DEMO_CONFIG=true
     ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
       nofile:
         soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
         hard: 65536
@@ -96,12 +99,15 @@ services:
       - cluster.name=${OS_CLUSTER_NAME}
       - discovery.seed_hosts=os01,os02,os03,os04,os05
       - cluster.initial_cluster_manager_nodes=os01,os02
-      - bootstrap.memory_lock=false # Rootless Docker cannot set unlimited memlock (rlimit type 8)
+      - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
       - DISABLE_INSTALL_DEMO_CONFIG=true
     # extra_hosts:
     #   - "os02=127.0.0.1"
     ulimits:
+      memlock:
+        soft: -1
+        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -138,12 +144,15 @@ services:
       - cluster.name=${OS_CLUSTER_NAME}
       - discovery.seed_hosts=os01,os02,os03,os04,os05
       - cluster.initial_cluster_manager_nodes=os01,os02
-      - bootstrap.memory_lock=false # Rootless Docker cannot set unlimited memlock (rlimit type 8)
+      - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
       - DISABLE_INSTALL_DEMO_CONFIG=true
     # extra_hosts:   # C4 fix: self-mapping breaks cluster transport
     #   - "os03=127.0.0.1"
     ulimits:
+      memlock:
+        soft: -1
+        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -177,12 +186,15 @@ services:
       - cluster.name=${OS_CLUSTER_NAME}
       - discovery.seed_hosts=os01,os02,os03,os04,os05
       - cluster.initial_cluster_manager_nodes=os01,os02
-      - bootstrap.memory_lock=false # Rootless Docker cannot set unlimited memlock (rlimit type 8)
+      - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
       - DISABLE_INSTALL_DEMO_CONFIG=true
     # extra_hosts:
     #   - "os04=127.0.0.1"
     ulimits:
+      memlock:
+        soft: -1
+        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -217,12 +229,15 @@ services:
       - cluster.name=${OS_CLUSTER_NAME}
       - discovery.seed_hosts=os01,os02,os03,os04,os05
       - cluster.initial_cluster_manager_nodes=os01,os02
-      - bootstrap.memory_lock=false # Rootless Docker cannot set unlimited memlock (rlimit type 8)
+      - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
       - DISABLE_INSTALL_DEMO_CONFIG=true
     # extra_hosts:2
     #   - "os05=127.0.0.1"
     ulimits:
+      memlock:
+        soft: -1
+        hard: -1
       nofile:
         soft: 65536
         hard: 65536

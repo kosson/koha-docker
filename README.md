@@ -115,31 +115,39 @@ Requirments for a viable password for OpenSearch:
 - minimum length 10
 - uppercase + lowercase + digit + special character
 
-> **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
-> `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
+**OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
 
-> **Credential drift note (important):** If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
->
-> Keep these values aligned every time you rotate credentials:
-> - `env/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
-> - `OpenSearch-3.6/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
-> - `env/.env` -> `ELASTIC_OPTIONS` (`<userinfo>admin:...`)
-> - `OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml` -> `opensearch.password`
->
-> After changing credentials, apply and refresh:
->
-> ```bash
-> cd OpenSearch-3.6
-> set -a && source .env && set +a && bash initial_api_calls.sh
-> docker compose up -d --force-recreate os01
-> docker compose ps os01 dashboards
-> ```
->
-> Recommended check:
->
-> ```bash
-> bash tests/test_opensearch_os01_auth_integration.sh
-> ```
+**Credential drift note (important):** If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
+
+First delete all data associated with the OpenSearch cluster. Being positioned in the OpenSearch-3.6 folder run the command:
+
+```bash
+bash ./restart-to-clear-cluster.sh
+```
+
+This will clear all data of the previous cluster in the `./OpenSearch-3.6/assets/opensearch/data`. This will clean up everything.
+
+Keep these values aligned every time you rotate credentials:
+
+- `env/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+- `OpenSearch-3.6/.env` -> `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+- `env/.env` -> `ELASTIC_OPTIONS` (`<userinfo>admin:...`)
+- `OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml` -> `opensearch.password`
+
+After changing credentials, apply and refresh:
+
+```bash
+cd OpenSearch-3.6
+set -a && source .env && set +a && bash initial_api_calls.sh
+docker compose up -d --force-recreate os01
+docker compose ps os01 dashboards
+```
+
+Recommended check after you start all the services:
+
+```bash
+bash tests/test_opensearch_os01_auth_integration.sh
+```
 
 ### 4. Start the stack
 
@@ -168,13 +176,9 @@ Quick checks and recovery:
 
 `stack.sh` now uses `KOHA_DB_ROOT_PASSWORD` from `env/.env` for DB readiness and recreate steps; rerunning the same command without fixing password drift will not solve the issue.
 
-**Every subsequent run** — images are already in the local cache:
+#### Resuming after a machine reboot or a normal stop
 
-```bash
-./stack.sh start
-```
-
-**Resuming after a machine reboot or a normal stop** — the `koha-db-data` volume persists across reboots and `./stack.sh stop`. Use `--no-fresh-db` to resume without wiping the database:
+The `koha-db-data` volume persists across reboots and `./stack.sh stop`. Use `--no-fresh-db` to resume without wiping the database:
 
 ```bash
 ./stack.sh start --no-fresh-db
@@ -185,6 +189,8 @@ Quick checks and recovery:
 `stack.sh` waits for each service health check before proceeding and tails the logs automatically. Startup takes **3–8 minutes** on first run depending on hardware. When Koha is ready, a summary box is printed with all URLs and credentials.
 
 Look into the structure of the management script: [Automated startup — `stack.sh`](#automated-startup----stacksh)
+
+If you get the following error `IPv4 forwarding is disabled. Networking will not work.` whicj was signaled on a Linux Mint, then you need to edit `/etc/sysctl.conf` file, find the line which contains `net.ipv4.ip_forward=1` and uncomment. Run `sudo sysctl -p` commmand to reload the settings. Better: `systemctl restart network`.
 
 ### 5. Open Koha in the browser
 
@@ -271,7 +277,7 @@ This lets you use the pre-built image from [Docker Hub](https://hub.docker.com/r
 To pin to a specific released version instead of `latest`, set in `env/.env`:
 
 ```bash
-KOHA_IMAGE_TAG=kosson/koha-ubuntu:25.12.00
+KOHA_IMAGE_TAG=kosson/koha-ubuntu:latest
 ```
 
 To force Docker Compose to re-check the Hub for a newer `latest` (bypassing the local cache):
