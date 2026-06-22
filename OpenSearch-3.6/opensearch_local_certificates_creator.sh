@@ -30,9 +30,13 @@ fi
 rm -f $OS_CERTS_PATH/$ADMIN_CA.csr $OS_CERTS_PATH/$ADMIN_CA-key-temp.pem
 rm -f $OS_CERTS_PATH/root-ca.srl
 
+# ENV_FILE is used by both the compliance-salt section and the hash section below.
+ENV_FILE="$SCRIPT_DIR/.env"
+
 # --- Compliance salt and SQL datasource master key ---------------------------------
-# Both values must be identical on every node. They are generated once here and
-# written into all os*/opensearch.yml files so the cluster is consistent.
+# Both values must be identical on every node. Generated once here and written to
+# .env; opensearch.yml files reference them as ${OS_COMPLIANCE_SALT} /
+# ${OS_QUERY_MASTERKEY} so OpenSearch substitutes them at container startup.
 #
 # WARNING: Do NOT regenerate the SQL masterkey after the cluster has been used to
 # store datasource credentials — re-running this script on an existing cluster will
@@ -41,24 +45,29 @@ rm -f $OS_CERTS_PATH/root-ca.srl
 
 COMPLIANCE_SALT="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
 SQL_MASTERKEY="$(openssl rand -hex 16)"
-CONFIG_BASE="$SCRIPT_DIR/assets/opensearch/config"
 
-for cfg in "$CONFIG_BASE"/os*/opensearch.yml; do
-    if grep -q "^plugins.security.compliance.salt:" "$cfg"; then
-        sed -i "s|^plugins.security.compliance.salt:.*|plugins.security.compliance.salt: \"$COMPLIANCE_SALT\"|" "$cfg"
+# Write (or update) OS_COMPLIANCE_SALT and OS_QUERY_MASTERKEY in .env.
+# The opensearch.yml files reference these as ${OS_COMPLIANCE_SALT} and
+# ${OS_QUERY_MASTERKEY}; OpenSearch substitutes them from the container
+# environment at startup (all containers use env_file: .env).
+# Writing here instead of patching the yml files means git pull can never
+# clobber the values — .env is gitignored and machine-local.
+_upsert_env() {
+    local key="$1" value="$2" file="$3"
+    if grep -q "^${key}=" "$file" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
     else
-        echo "plugins.security.compliance.salt: \"$COMPLIANCE_SALT\"" >> "$cfg"
+        echo "${key}=${value}" >> "$file"
     fi
-    if grep -q "^plugins.query.datasources.encryption.masterkey:" "$cfg"; then
-        sed -i "s|^plugins.query.datasources.encryption.masterkey:.*|plugins.query.datasources.encryption.masterkey: \"$SQL_MASTERKEY\"|" "$cfg"
-    else
-        echo "plugins.query.datasources.encryption.masterkey: \"$SQL_MASTERKEY\"" >> "$cfg"
-    fi
-done
-echo "Compliance salt and SQL master key written to all node configs."
-echo "  compliance salt : $COMPLIANCE_SALT"
-echo "  SQL master key  : $SQL_MASTERKEY"
-echo "Store these values securely — they are required to restore the cluster."
+}
+
+_upsert_env "OS_COMPLIANCE_SALT" "$COMPLIANCE_SALT" "$ENV_FILE"
+_upsert_env "OS_QUERY_MASTERKEY"  "$SQL_MASTERKEY"  "$ENV_FILE"
+
+echo "Compliance salt and SQL master key written to $ENV_FILE."
+echo "  OS_COMPLIANCE_SALT : $COMPLIANCE_SALT"
+echo "  OS_QUERY_MASTERKEY : $SQL_MASTERKEY"
+echo "  (opensearch.yml files reference these via \${OS_COMPLIANCE_SALT} / \${OS_QUERY_MASTERKEY})"
 
 # --- Secure file permissions -------------------------------------------------------
 # Config files and private keys must not be world-readable. The Security plugin will
@@ -76,7 +85,6 @@ echo "File permissions set (certs: 775, config dirs: 775, config files: 775)."
 # a stale hash is the most common cause of 401 / healthcheck failures on fresh starts.
 
 INTERNAL_USERS_YML="$SCRIPT_DIR/assets/opensearch/config/os01/opensearch-security/internal_users.yml"
-ENV_FILE="$SCRIPT_DIR/.env"
 
 # Read password; strip surrounding single/double quotes (handles KEY=value and KEY="value")
 ADMIN_PASS="$(grep -E '^OPENSEARCH_INITIAL_ADMIN_PASSWORD=' "$ENV_FILE" 2>/dev/null \

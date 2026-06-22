@@ -78,7 +78,9 @@ plugins.security.nodes_dn:
   - 'CN=dashboards,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
 http.detailed_errors.enabled: true
 # W2: compliance field-masking salt (must be identical on all nodes)
-plugins.security.compliance.salt: "R77RJ8MoyToszzRk"
+# Value is read from OS_COMPLIANCE_SALT in OpenSearch-3.6/.env (gitignored — machine-specific)
+plugins.security.compliance.salt: "${OS_COMPLIANCE_SALT}"
 # W3: SQL plugin datasource encryption master key
-plugins.query.datasources.encryption.masterkey: "dd3128606f96784ad30e65c3ef165fb1"
+# Value is read from OS_QUERY_MASTERKEY in OpenSearch-3.6/.env (gitignored — machine-specific)
+plugins.query.datasources.encryption.masterkey: "${OS_QUERY_MASTERKEY}"
 

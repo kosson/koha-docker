@@ -59,7 +59,7 @@ Ca măsură de prevedere, pentru propriul proiect modifică valoarea de la `OPEN
 
 ### Pasul 2
 
-Pornește clusterul generând containerele: `docker compose up -d`. Dacă nu ești în directorul proiectului, poți rula o comandă folosindu-te de căie absolute:
+Pornește clusterul generând containerele: `docker compose up -d`. Dacă nu ești în directorul proiectului, poți rula o comandă folosindu-te de căile absolute:
 
 ```bash
 docker compose --project-directory /home/nicolaie/Documents/NIPNE/cluster-opensearch/OpenSearch-3.6 -f /home/nicolaie/Documents/NIPNE/cluster-opensearch/OpenSearch-3.6/docker-compose.yml up 2>&1 | tee /tmp/opensearch-startup-5.log

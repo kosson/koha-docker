@@ -12,6 +12,11 @@ OpenSearch-3.6/assets/ssl/*.crt
 
 OpenSearch-3.6/assets/opensearch/data/
 
+# OpenSearch machine-local config (passwords, compliance salt, SQL masterkey).
+# Each workstation generates its own values via opensearch_local_certificates_creator.sh.
+# Copy OpenSearch-3.6/.env.example to OpenSearch-3.6/.env and run the script on first use.
+OpenSearch-3.6/.env
+
 # Editor / OS noise
 .DS_Store
 *.swp
