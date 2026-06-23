@@ -1,15 +1,14 @@
 # Koha Docker containers
 
-This is a setup of Docker containers created to work with the latest Koha ILS, Koha 25.12.00. Some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker). All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file.
+This is a setup of Docker containers created to work with the latest Koha ILS. Some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker). All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file. The working version of Koha is 26.
+
 Use the source code as is. Remember this is a development project to experiment with Koha, to migrate data, etc. This is not a production suite.
 
 This setup creates a self-contained Docker Compose environment for **Koha ILS** development, backed by **MariaDB 10.11** and an external **OpenSearch 3.6** cluster.
 
 You need to have a fairly well endowed computer to run these services. All the final product will need around 12Gb of RAM to run comfortably. The RAM of your computer needs to be at least 22Gb, which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection.
 
-## Scope
-
-Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the version is Koha 25.12.00. Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing engine (OpenSearch), and a proxy for accessing the installation in the browser (Traefik).
+Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing engine (OpenSearch), and a proxy for accessing the installation in the browser (Traefik).
 
 ## Prerequisites
 
@@ -54,20 +53,9 @@ docker info --format '{{json .SecurityOptions}}'
 sysctl net.ipv4.ip_unprivileged_port_start
 ```
 
-### Koha source tree
+## Security-critical environment variables
 
-Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:
-
-```bash
-cd koha-docker
-git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
-```
-
-The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match.
-
-### Security-critical environment variables
-
-> **Before starting the stack for the first time**, open `env/.env` and change every variable marked below. Leaving any of them at the default value is safe only on a local throwaway machine with no external network access.
+Rename the template.env file to `.env` before starting the stack for the first time. Open the `env/.env` file and change every variable marked below. Leaving any of them at the default value is safe only on a local throwaway machine with no external network access.
 
 | Variable | Where | Default (insecure) | What to set |
 |---|---|---|---|
@@ -79,45 +67,58 @@ The directory is bind-mounted into the container at `/kohadevbox/koha`. The cont
 
 > **OpenSearch password consistency:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env`, the `<userinfo>` value inside `ELASTIC_OPTIONS`, and `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `OpenSearch-3.6/.env` must all carry the same password. A mismatch causes the Koha container to fail the OpenSearch health check at startup.
 
+More on the `Configuring the environment variables` section down bellow.
+
 ---
 
 ## Quick setup
 
-Everything you need to go from a fresh clone to a running Koha stack. Each step links to the relevant section for full details.
+Everything you need to go from a fresh clone to a running Koha stack. Each step links to the relevant section for full details. If any of these operations went wrong, there is a section bellow on how to start all the services manually.
 
 ### 1. Verify prerequisites
 
 Docker Engine 24+ and Docker Compose v2.20+ must be installed. Your host user must have **UID 1000** (the bind-mounted Koha source directory must be owned by that UID).
-First, go to the [Prerequisites](#prerequisites) section and read it carefully.
+First, go to the [Prerequisites](#prerequisites) section and read it carefully. Install and configure all the necessary software.
 
 ### 2. Clone the Koha source tree
+
+Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:
 
 ```bash
 cd koha-docker
 git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
 ```
 
-Take a look at the [Koha source tree](#koha-source-tree) to get aquainted to the structure of Koha.
+The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match. The versions that this solution works with are Koha 25 and 26.
 
 ### 3. Configure `env/.env`
 
-Rename the template.env file to `.env`. Open `env/.env` and update **at minimum** these two values:
+Some of the settings were mentioned above in `Security-critical environment variables` section. Rename the template.env file to `.env`. Open `env/.env` and update **at minimum** these two values:
 
 | Variable | What to change |
 |---|---|
 | `SYNC_REPO` | Set to the **absolute path** on your host to the `koha/` directory cloned above — e.g. `/home/youruser/koha-docker/koha` |
 | `KOHA_DOMAIN` | Change to `.<ip>.nip.io` for zero-config portable DNS — the simplest choice is `.127.0.0.1.nip.io`, which makes the OPAC reachable at `http://kohadev.127.0.0.1.nip.io` with no `/etc/hosts` edits |
 
-Everything else has workable defaults. See [Initial configuration](#initial-configuration). You still need to modify `SYNC_REPO` to reflect the path on your machine as mentioned. Now, if you modified the `ELASTIC_OPTION` password and as a consquence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD`, you need to make sure you modify the `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder.
+Everything else has workable defaults. See [Initial configuration](#initial-configuration). You MUST modify `SYNC_REPO` to reflect the path on your machine.
+
+#### OpenSearch cluster forming details
+
+First, create the necessary credential files. Run the `opensearch_local_certificates_creator.sh` script. This script will take into consideration the existing environment variables, and based on that will generate the necessary certificate files in the `./OpenSearch-3.6/assets/ssl` subfolder. At the moment of first run, the `.OpenSearch-3.6/assets/opensearch/data` subfolder will be created containing the corresponding data for each node of the cluster.
+
+The following details are useful in case you run into trouble with the OpenSearch cluster.
+If you modified the password used for OpenSearch, this meaning the values of `ELASTIC_OPTION` and as a consequence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `env/.env` file, you need to make sure you modify the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Remember that if you have modified the password for the aforementioned environment variables you MUST run the `opensearch_local_certificates_creator.sh` script. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder if not found.
 
 Requirments for a viable password for OpenSearch:
 
 - minimum length 10
 - uppercase + lowercase + digit + special character
 
-**OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and `OpenSearch-3.6/.env` must match. Both files ship with the same default value.
+**OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` file and `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `OpenSearch-3.6/.env` file must match. Both files ship with the same default value: `test@Cici24#ANA`. Verify also the `./OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml` file to hve the same password: `opensearch.password: "test@Cici24#ANA"`. Otherwise you will get into a credential drift, and your OpenSearch cluster will not form.
 
-**Credential drift note (important):** If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
+#### OpenSearch credential drift note (important)
+
+If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
 
 First delete all data associated with the OpenSearch cluster. Being positioned in the OpenSearch-3.6 folder run the command:
 
@@ -125,7 +126,7 @@ First delete all data associated with the OpenSearch cluster. Being positioned i
 bash ./restart-to-clear-cluster.sh
 ```
 
-This will clear all data of the previous cluster in the `./OpenSearch-3.6/assets/opensearch/data`. This will clean up everything.
+This will clear all data of the previous cluster in the `./OpenSearch-3.6/assets/opensearch/data`. Will delete also all the certificates generated by running `opensearch_local_certificates_creator.sh`. Mind that the `./OpenSearch-3.6/.env` values will not be deleted. Be very thorough with this. It is usually the source of errors when forming the OpenSearch cluster. Now you are on a fresh start. Recreate the credentials first and check to see if the `./OpenSearch-3.6/assets/ssl` subfolder has been populated.
 
 Keep these values aligned every time you rotate credentials:
 
@@ -149,17 +150,29 @@ Recommended check after you start all the services:
 bash tests/test_opensearch_os01_auth_integration.sh
 ```
 
+As a rule of thumb it is wise to start the OpenSearch cluster. If it forms well, procede with the rest.
+
 ### 4. Start the stack
 
-**First run** — builds the `kosson/opensearch-icu` and `kosson/koha-ubuntu` images, then starts all services:
+There are two methods. First, the recommended one is to build the images local. This implies running the following command which builds the `kosson/opensearch-icu` and `kosson/koha-ubuntu` images, then starts all services:
 
 ```bash
 ./stack.sh start --build
 ```
 
+The second method is to run:
+
+```bash
+./stack.sh start
+```
+
+this will take care of all the operations needed to start.
+
+#### Possible issues/errors at the first start
+
 If you see this error during startup:
 
-```txt
+```log
 ── Recreating Koha database ──
 [hh:mm:ss] Dropping and recreating 'koha_kohadev'...
 ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)
@@ -171,8 +184,9 @@ Quick checks and recovery:
 
 1. Verify `KOHA_DB_ROOT_PASSWORD` in `env/.env`.
 2. If the volume was created with an older password, either:
-  - restore that old password in `env/.env`, or
-  - run `./stack.sh reset` (destructive: removes DB/OpenSearch volumes) and start fresh.
+
+- restore that old password in `env/.env`, or
+- run `./stack.sh reset` (destructive: removes DB/OpenSearch volumes) and start fresh.
 
 `stack.sh` now uses `KOHA_DB_ROOT_PASSWORD` from `env/.env` for DB readiness and recreate steps; rerunning the same command without fixing password drift will not solve the issue.
 
@@ -219,12 +233,16 @@ The project has two independent TLS layers:
 
 ---
 
-## Initial configuration
+## Configuring the environment variables
+
+This section manages all the environment varaibles set for this project to run.
+
+### Initial configuration
 
 All settings live in **`env/.env`**. Rename the template.env file to `.env`. Copy or review the file before the first start.
 Critical values to verify:
 
-### Identity and paths
+#### Identity and paths
 
 | Variable | Default | Description |
 |---|---|---|
@@ -232,7 +250,7 @@ Critical values to verify:
 | `SYNC_REPO` | `/media/expansion/DEVELOPMENT/KOHA-DOCKER-SOLUTIONS/koha-docker/koha` | **Absolute path on the host** to the Koha source tree |
 | `KOHA_INSTANCE` | `kohadev` | Name of the Koha instance created inside the container |
 
-### Domain and ports
+#### Domain and ports
 
 | Variable | Default | Description |
 |---|---|---|
@@ -243,13 +261,13 @@ Critical values to verify:
 | `KOHA_PUBLIC_PORT` | `80` | **Public-facing HTTP port served by Traefik.** URLs stored in the Koha database (`OPACBaseURL`, `staffClientBaseURL`) use this port. Port 80 is the default for HTTP and is omitted from URLs — so links in Koha pages will not contain `:8080`. Change to match `TRAEFIK_HTTP_PORT` if Traefik runs on a non-standard port (e.g. `8000`). |
 | `TLS_CERTRESOLVER` | *(empty)* | Certificate resolver name for Traefik HTTPS routers. Set to `letsencrypt` to request automatic certificates from Let's Encrypt. Requires `ACME_EMAIL` set in `traefik/.env`, a publicly reachable port 80, and a real public `KOHA_DOMAIN`. Leave empty for local dev — Traefik falls back to a self-signed certificate for HTTPS while HTTP continues to work normally. Also set the same value in `OpenSearch-3.6/.env` for the Dashboards service. |
 
-### Demo data
+#### Demo data
 
 | Variable | Default | Description |
 |---|---|---|
 | `LOAD_DEMO_DATA` | `yes` | `yes` — load 436 sample MARC bibliographic records, authority records, items, and patron data during first startup (via `misc4dev/insert_data.pl`). `no` — skip sample data; the catalogue is empty and only the superlibrarian account is created. Override at runtime with `./stack.sh start --no-demo-data` or `--with-demo-data`. |
 
-### Database
+#### Database
 
 | Variable | Default | Description |
 |---|---|---|
@@ -258,7 +276,7 @@ Critical values to verify:
 | `KOHA_DB_ROOT_PASSWORD` | `password` | Root password for the MariaDB container. Shared between the `db` service (`MYSQL_ROOT_PASSWORD`) and the Koha container (`/etc/mysql/koha-common.cnf`). **Change before first start** — see [Security-critical environment variables](#security-critical-environment-variables). |
 | `KOHA_DB_PASSWORD` | `password` | Password for the `koha_kohadev` database user. **Change before first start.** |
 
-### Koha container image
+#### Koha container image
 
 | Variable | Default | Description |
 |---|---|---|
@@ -289,7 +307,7 @@ docker compose \
   pull koha
 ```
 
-### OpenSearch connection
+#### OpenSearch connection
 
 | Variable | Value | Description |
 |---|---|---|
@@ -301,7 +319,7 @@ docker compose \
 
 Current `ELASTIC_OPTIONS` value (all on one line in `env/.env`):
 
-```
+```txt
 ELASTIC_OPTIONS=<ssl_options><SSL_verify_mode>0</SSL_verify_mode></ssl_options><userinfo>admin:test@Cici24#ANA</userinfo><client_version>7</client_version>
 ```
 
@@ -313,7 +331,7 @@ Each XML element maps to a keyword argument passed to `Search::Elasticsearch->ne
 | `<userinfo>admin:test@Cici24#ANA</userinfo>` | Passes credentials as a raw string so special chars (`@`, `#`) are base64-encoded correctly — **do not put credentials in the URL** |
 | `<client_version>7</client_version>` | Bypasses the Elasticsearch 8.x product check that rejects OpenSearch (`x-elastic-product: OpenSearch` ≠ `Elasticsearch`) |
 
-### OpenSearch cluster settings
+#### OpenSearch cluster settings
 
 Edit `OpenSearch-3.6/.env` to change the cluster version or admin password:
 
@@ -326,7 +344,7 @@ The admin password must match `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `koha-docke
 
 The OpenSearch cluster requires mutual TLS between all nodes, the admin client, and the Dashboards container. The necessary certificates are **pre-generated and committed** to the repository under `OpenSearch-3.6/assets/ssl/`:
 
-```
+```txt
 root-ca.pem / root-ca-key.pem      ← self-signed root CA
 admin.pem   / admin-key.pem        ← admin client cert (used by securityadmin.sh)
 os01–os05.pem / os01–os05-key.pem  ← per-node transport + HTTP certs
@@ -335,7 +353,7 @@ client.pem  / dashboards.pem …     ← client and Dashboards certs
 
 These files are mounted into each container at startup — **no certificate generation happens during `stack.sh start` or `docker compose up`**.
 
-### When to regenerate
+##### When to regenerate the certificates
 
 The certificates are valid for **730 days (2 years)** from the date they were first created. You also need to regenerate them if:
 
@@ -343,7 +361,7 @@ The certificates are valid for **730 days (2 years)** from the date they were fi
 - the existing certs have expired and OpenSearch refuses to start
 - you ran `./stack.sh reset` and want a genuinely fresh cluster
 
-### How to regenerate
+##### How to regenerate the certificates
 
 > **Warning:** regenerating certificates also regenerates the **compliance salt** and **SQL datasource master key** written into each node’s `opensearch.yml`. Any encrypted datasource credentials stored in an existing cluster become unreadable. Only do this on a fresh or fully-reset cluster.
 
@@ -370,7 +388,7 @@ After regenerating, rebuild the OpenSearch images (they bake the certs in) and d
 ./stack.sh start --build-opensearch
 ```
 
-### Certificate subject configuration
+#### Certificate subject configuration
 
 The subject DN and output paths are defined in `OpenSearch-3.6/opensearch_installer_vars.cfg`:
 
@@ -387,7 +405,9 @@ Change `CERT_DN` to match your organisation before running the script on a new d
 
 ## Automated startup — `stack.sh`
 
-`stack.sh` in the project root handles the entire lifecycle. It wraps all five manual steps below into single commands, waits for health checks between stages, and prints a summary box with URLs and credentials when the stack is ready.
+The script `stack.sh` in the project root handles the entire lifecycle of the project. It wraps all five manual steps below into single commands, waits for health checks between stages, and prints a summary box with URLs and credentials when the stack is ready.
+
+The following subcommands and options are available:
 
 ```bash
 # First run — build both image sets, then start everything
@@ -442,7 +462,7 @@ These flags work with both `start` and `restart`:
 ./stack.sh restart --with-demo-data  # Reset and reload demo data
 ```
 
-### What `start` does internally
+### What `start` subcommand does internally
 
 1. Verifies prerequisites (`docker`, `docker compose`, `env/.env`).
 2. Optionally rebuilds images.
@@ -453,7 +473,7 @@ These flags work with both `start` and `restart`:
 7. Starts the Koha container with `--force-recreate`.
 8. Tails the logs and prints a ready banner when the "started up" line appears.
 
-### `restart` command
+### `restart` subcommand
 
 `restart` is for quick iteration when OpenSearch is already running. It resets the database and re-creates only the Koha container — OpenSearch and MariaDB are not restarted.
 
@@ -462,7 +482,7 @@ These flags work with both `start` and `restart`:
 ./stack.sh restart --no-fresh-db  # Recreate Koha only (keep existing data)
 ```
 
-### Restarting after a machine reboot
+## Restarting after a machine reboot
 
 When the host machine is rebooted the `koha-db-data` Docker volume persists — the database is still fully populated. Starting the stack as usual with `./stack.sh start` would drop and recreate the database (default `FRESH_DB=true` behaviour). To resume where you left off **without wiping your data**, always use `--no-fresh-db`:
 
@@ -486,7 +506,7 @@ When the host machine is rebooted the `koha-db-data` Docker volume persists — 
 
 The command will prompt:
 
-```
+```log
 [WARN] This will stop ALL containers, remove them, and delete ALL named volumes.
 [WARN] Database data, OpenSearch indices, and Traefik state will be permanently lost.
 [WARN] Docker images will be preserved.
@@ -523,7 +543,7 @@ bash tests/run_all_tests.sh
 
 Expected output when the stack is not running:
 
-```
+```log
 === test_run_sh_static.sh ===
 ok 1 - …
 …
@@ -575,8 +595,7 @@ docker compose build os01
 ```
 
 This builds a single custom image (`kosson/opensearch-icu`) with the `analysis-icu` plugin installed.
-All five cluster nodes share this image — `os01` owns the `build:` block and tags the result;
-`os02`–`os05` reference the same tag via `image:` with `pull_policy: never`.
+All five cluster nodes share this image — `os01` owns the `build:` block and tags the result; `os02`–`os05` reference the same tag via `image:` with `pull_policy: never`.
 
 #### What `analysis-icu` is and why Koha needs it
 
