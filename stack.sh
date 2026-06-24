@@ -63,9 +63,11 @@ TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT 80)"
 TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT 443)"
 TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT 8083)"
 ACME_EMAIL="$(_env_val "${TRAEFIK_DIR}/.env" ACME_EMAIL "")"
+KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH no)"
 # Admin password: prefer the OS .env file (source of truth for the cluster)
 OS_ADMIN_PASS="$(_env_val "${OPENSEARCH_DIR}/.env" OPENSEARCH_INITIAL_ADMIN_PASSWORD \
   "$(_env_val "${KOHA_ENV_FILE}" OPENSEARCH_INITIAL_ADMIN_PASSWORD 'changeme')")"
+KOHA_ELASTIC_OPTIONS="$(_env_val "${KOHA_ENV_FILE}" ELASTIC_OPTIONS "")"
 DASHBOARDS_DOMAIN="$(_env_val "${OPENSEARCH_DIR}/.env" DASHBOARDS_DOMAIN "dashboards.localhost")"
 TLS_CERTRESOLVER="$(_env_val "${KOHA_ENV_FILE}" TLS_CERTRESOLVER "")"
 
@@ -142,6 +144,126 @@ ensure_extra_networks() {
       ok "Network '$net' already exists."
     fi
   done
+}
+
+ensure_opensearch_certs() {
+  hdr "Preparing OpenSearch certificates"
+
+  local cert_dir="${OPENSEARCH_DIR}/assets/ssl"
+  local generator="${OPENSEARCH_DIR}/opensearch_local_certificates_creator.sh"
+  local config_file="${OPENSEARCH_DIR}/opensearch_installer_vars.cfg"
+  local required_files=(
+    root-ca.pem
+    root-ca-key.pem
+    admin.pem
+    admin-key.pem
+    os01.pem
+    os01-key.pem
+    os02.pem
+    os02-key.pem
+    os03.pem
+    os03-key.pem
+    os04.pem
+    os04-key.pem
+    os05.pem
+    os05-key.pem
+    dashboards.pem
+    dashboards-key.pem
+  )
+  local file_path needs_regen=false
+
+  [[ -f "${config_file}" ]] || die "Missing ${config_file}; OpenSearch certificates cannot be generated without it."
+  mkdir -p "${cert_dir}"
+
+  for file_name in "${required_files[@]}"; do
+    file_path="${cert_dir}/${file_name}"
+    if [[ -d "${file_path}" ]]; then
+      warn "Removing directory at certificate path: ${file_path}"
+      rm -rf "${file_path}"
+      needs_regen=true
+    elif [[ ! -f "${file_path}" ]]; then
+      needs_regen=true
+    fi
+  done
+
+  if [[ "${needs_regen}" == true ]]; then
+    log "OpenSearch certs are missing or invalid; regenerating them now..."
+    pushd "${OPENSEARCH_DIR}" > /dev/null
+    bash ./opensearch_local_certificates_creator.sh
+    popd > /dev/null
+  else
+    ok "OpenSearch certificates already present."
+  fi
+
+  for file_name in "${required_files[@]}"; do
+    file_path="${cert_dir}/${file_name}"
+    [[ -f "${file_path}" ]] || die "Expected OpenSearch certificate file missing or invalid: ${file_path}"
+  done
+
+  ok "OpenSearch certificates ready."
+}
+
+sync_koha_opensearch_credentials() {
+  if [[ "${KOHA_ELASTICSEARCH}" != "yes" ]]; then
+    return 0
+  fi
+
+  if [[ -z "${KOHA_ELASTIC_OPTIONS}" ]]; then
+    warn "ELASTIC_OPTIONS is empty in env/.env; Koha may not be able to authenticate to OpenSearch."
+    return 0
+  fi
+
+  ELASTIC_OPTIONS="$(OPENSEARCH_ADMIN_PASSWORD="${OS_ADMIN_PASS}" ELASTIC_OPTIONS="${KOHA_ELASTIC_OPTIONS}" python3 - <<'PY'
+import os
+import re
+
+options = os.environ["ELASTIC_OPTIONS"]
+password = os.environ["OPENSEARCH_ADMIN_PASSWORD"]
+synced = re.sub(r'(<userinfo>admin:)[^<]*(</userinfo>)', r'\1' + password + r'\2', options, count=1)
+print(synced)
+PY
+)"
+  export OPENSEARCH_INITIAL_ADMIN_PASSWORD="${OS_ADMIN_PASS}"
+  export ELASTIC_OPTIONS
+  ok "Aligned Koha OpenSearch credentials with OpenSearch-3.6/.env."
+}
+
+ensure_opensearch_auth() {
+  if [[ "${KOHA_ELASTICSEARCH}" != "yes" ]]; then
+    return 0
+  fi
+
+  sync_koha_opensearch_credentials
+
+  local auth_code
+  auth_code="$(curl -ks -o /dev/null -w '%{http_code}' -u "admin:${OS_ADMIN_PASS}" \
+    https://localhost:9200/_cluster/health?pretty || true)"
+
+  if [[ "${auth_code}" == "200" ]]; then
+    ok "OpenSearch auth probe succeeded (HTTP 200)."
+    return 0
+  fi
+
+  if [[ "${auth_code}" == "401" ]]; then
+    warn "OpenSearch returned HTTP 401. Reapplying security config and recreating os01..."
+    pushd "${OPENSEARCH_DIR}" > /dev/null
+    set -a
+    source .env
+    set +a
+    bash ./initial_api_calls.sh
+    docker compose up -d --force-recreate os01
+    popd > /dev/null
+
+    wait_opensearch_green
+
+    auth_code="$(curl -ks -o /dev/null -w '%{http_code}' -u "admin:${OS_ADMIN_PASS}" \
+      https://localhost:9200/_cluster/health?pretty || true)"
+    [[ "${auth_code}" == "200" ]] || die "OpenSearch auth still returns HTTP ${auth_code} after security resync."
+    ok "OpenSearch auth resynced and verified."
+    return 0
+  fi
+
+  warn "OpenSearch auth probe returned HTTP ${auth_code}; continuing with current credentials."
 }
 
 # ---------------------------------------------------------------------------
@@ -508,9 +630,11 @@ case "${COMMAND}" in
     check_prereqs
     [[ "${BUILD_OPENSEARCH}" == true ]] && build_opensearch
     [[ "${BUILD_KOHA}"       == true ]] && build_koha
+    ensure_opensearch_certs
     start_traefik
     start_opensearch
     wait_opensearch_green
+    ensure_opensearch_auth
     start_opensearch_dashboards
     start_support_services
     wait_db_ready

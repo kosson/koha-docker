@@ -28,7 +28,7 @@ If Docker runs in rootless mode, two startup failures can occur out of the box.
 
 Startup fails while starting Traefik:
 
-```txt
+```log
 cannot expose privileged port 80
 net.ipv4.ip_unprivileged_port_start=1024
 ```
@@ -39,7 +39,7 @@ Fix: use non-privileged ports in `traefik/.env` — this is already the default 
 
 Startup fails while creating any OpenSearch container:
 
-```txt
+```log
 failed to create shim task: OCI runtime create failed: runc create failed:
 unable to start container process: error during container init:
 error setting rlimits for ready process: error setting rlimit type 8: operation not permitted
@@ -83,10 +83,13 @@ Edit `env/.env` at minimum:
 4. Raise OpenSearch from zero (recommended deterministic path):
 
 ```bash
+docker pull opensearchproject/opensearch:3.6.0
 cd OpenSearch-3.6
 ./raise-from-ground-up.sh
 cd ..
 ```
+
+If the cluster is raised and green, bring it down before the next step `docker compose down -v --remove-orphans`.
 
 5. Start Koha stack:
 
@@ -165,7 +168,9 @@ Second, create the necessary credential files. Run the `opensearch_local_certifi
 The following details are useful in case you run into trouble with the OpenSearch cluster.
 If you modified the password used for OpenSearch, this meaning the values of `ELASTIC_OPTION` and as a consequence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `env/.env` file, you need to make sure you modify the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Remember that if you have modified the password for the aforementioned environment variables you MUST run the `opensearch_local_certificates_creator.sh` script. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder if not found.
 
-Requirments for a viable password for OpenSearch:
+**Warning:** do not create or replace files under `OpenSearch-3.6/assets/ssl/` manually. OpenSearch expects `root-ca.pem`, `admin.pem`, and the per-node PEM files to be regular files, not directories. If a cert path is missing when Docker Compose starts, Docker can create a directory at that path and OpenSearch will abort with an error like `.../root-ca.pem - is a directory`. Always regenerate the certificate set with `opensearch_local_certificates_creator.sh` instead of creating placeholders by hand.
+
+Requirements for a viable password for OpenSearch:
 
 - minimum length 10
 - uppercase + lowercase + digit + special character
@@ -176,22 +181,19 @@ The OpenSearch-3.6 folder provides you with two important scripts that help rais
 - `raise-from-ground-up.sh`, and
 - `restart-to-clear-cluster.sh`.
 
-The first should be run prior to anything else, and the second when you made some mistake and you lost track.
+The first should be run prior to anything else, and the second when you made some mistake and you lost track. Rememeber that this is very useful to make a wet rehersal for the OpenSearch cluster. If all is ok, bring it down with `docker compose down -v --remove-orphans`. The real creation of the cluster is on `./stack start` script job.
 
 #### OpenSearch credential drift note (important)
 
-If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, authentication can drift: Basic Auth calls may fail with HTTP 401 while containers still run.
+If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` drifts between `env/.env` and `OpenSearch-3.6/.env`, OpenSearch can stay green while Basic Auth starts failing with HTTP 401. The `os01` healthcheck is certificate-based, so it will not detect this on its own.
 
-Current behavior:
-
-- `os01` healthcheck is certificate-based (mTLS with `admin.pem` / `admin-key.pem`) and does not use Basic Auth.
-- Password drift still breaks API/script/integration calls that use `admin:<password>` (for example Koha OpenSearch calls, manual curl probes, and auth integration tests).
-
-Typical symptoms of drift:
+Symptoms are usually:
 
 - `tests/test_opensearch_os01_auth_integration.sh` fails.
-- `curl -u admin:<password>` calls return 401.
-- Dashboards/Koha report auth errors even if `os01` process is up.
+- `curl -u admin:<password>` returns 401.
+- Koha or Dashboards show auth errors even though `os01` is running.
+
+`./stack.sh start` now self-heals this case before Koha starts: it syncs Koha's `ELASTIC_OPTIONS` with `OpenSearch-3.6/.env`, probes the cluster, and reruns `initial_api_calls.sh` if OpenSearch still answers 401.
 
 For a fully clean recovery, reset and rebuild OpenSearch from zero:
 
@@ -790,6 +792,8 @@ set -a && source .env && set +a
 curl -ks -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://localhost:9200/_cat/nodes?v
 curl -ks -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://localhost:9200/_cluster/health?pretty
 ```
+
+After you have the conformation that the cluster is green, remember to stop it and disolve it: `docker compose down -v --remove-orphans`. It will be raised by the `./stack.sh start` command.
 
 #### When to run `initial_api_calls.sh`
 

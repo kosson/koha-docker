@@ -3887,3 +3887,136 @@ File updated: `OpenSearch-3.6/raise-from-ground-up.sh`
 2. Startup failures caused by data-path access problems are reported immediately and explicitly.
 3. Step 3b no longer fails due to missing `find` in the helper container command.
 
+---
+
+## 2026-06-24 - Protect OpenSearch SSL bootstrap from directory-vs-file path corruption
+
+### Problem
+
+`./stack.sh start` failed during OpenSearch startup with:
+
+```txt
+OpenSearchException: /usr/share/opensearch/config/root-ca.pem - is a directory
+```
+
+This happened inside `org.opensearch.security.OpenSearchSecurityPlugin` while loading SSL configuration, before the cluster could become healthy.
+
+### Root cause
+
+1. OpenSearch mounts `./OpenSearch-3.6/assets/ssl/root-ca.pem` and other certificate files directly into `/usr/share/opensearch/config/`.
+2. If one of those host paths is missing when Docker Compose starts, Docker can create a directory at that path instead of a file.
+3. Once the path has become a directory, the Security plugin aborts at startup because it expects a regular PEM file.
+4. `stack.sh start` previously assumed the cert files were already present and did not verify or regenerate them before starting the cluster.
+
+### Changes made
+
+File updated: `stack.sh`
+
+1. Added `ensure_opensearch_certs()`.
+2. The new helper:
+  - checks for the OpenSearch cert generator config file (`opensearch_installer_vars.cfg`),
+  - creates `assets/ssl` if needed,
+  - removes any directory accidentally created at a certificate path,
+  - regenerates the cert set when any required PEM file is missing or invalid,
+  - verifies that all expected cert files exist as regular files before startup.
+3. `start` now calls `ensure_opensearch_certs()` before `start_traefik` and `start_opensearch`.
+
+### Why these changes were needed
+
+1. To stop Docker from bind-mounting directories where certificate files are expected.
+2. To fail early with a clear message if the OpenSearch cert bootstrap inputs are missing.
+3. To make `./stack.sh start` self-healing after a bad partial start or a host-side cleanup that leaves `assets/ssl` incomplete.
+
+### Effect
+
+1. OpenSearch startup no longer depends on the operator manually preparing PEM files first.
+2. The script now repairs invalid certificate paths before Compose starts the cluster.
+3. The Security plugin can load `/usr/share/opensearch/config/root-ca.pem` as a file, so plugin initialization proceeds normally.
+
+---
+
+## 2026-06-24 - Self-heal OpenSearch auth drift before Koha startup
+
+### Problem
+
+`./stack.sh start` could reach a state where OpenSearch was green but the Koha container looped on:
+
+```txt
+[elasticsearch] attempt 2/60: OpenSearch not ready yet (HTTP 401)
+```
+
+The cluster was reachable, but Koha could not authenticate to OpenSearch with the password it received from `env/.env`.
+
+### Root cause
+
+1. The startup flow only waited for cluster health, not for credential alignment.
+2. Koha reads `OPENSEARCH_INITIAL_ADMIN_PASSWORD` and `ELASTIC_OPTIONS` from its own env file, while the cluster uses the password from `OpenSearch-3.6/.env`.
+3. If the Security index was stale or if the passwords drifted, Koha would start with credentials that the cluster rejected with HTTP 401.
+4. The failure was recurring because the startup script did not self-heal the auth state before handing control to the Koha container.
+
+### Changes made
+
+File updated: `stack.sh`
+
+1. Added `sync_koha_opensearch_credentials()`.
+2. The new helper:
+  - reads the active OpenSearch admin password from `OpenSearch-3.6/.env`,
+  - rewrites the Koha-side `ELASTIC_OPTIONS` userinfo to match that password,
+  - exports the synced password into the startup environment so Compose passes a single consistent value to Koha.
+3. Added `ensure_opensearch_auth()`.
+4. The new auth guard:
+  - probes `https://localhost:9200/_cluster/health` with the active admin credentials,
+  - if the cluster returns HTTP 401, it runs `OpenSearch-3.6/initial_api_calls.sh`,
+  - recreates `os01` so the node reloads the updated security state,
+  - verifies auth again before Koha starts.
+5. `start` now runs the auth guard after cluster health is green and before support services / Koha startup.
+
+### Why these changes were needed
+
+1. To stop Koha from entering a repeated 401 retry loop when the cluster security index drifts.
+2. To make the startup path resilient after password changes or partially-applied security updates.
+3. To remove the need for a manual `initial_api_calls.sh` invocation during normal development use.
+
+### Effect
+
+1. The stack now repairs common OpenSearch auth drift automatically during startup.
+2. Koha starts only after the OpenSearch password used by the container matches the active cluster password.
+3. If the cluster still rejects the credentials, the security config is reapplied and the cluster node is recreated before Koha is launched.
+
+---
+
+## 2026-06-24 - Condense OpenSearch auth drift guidance in README
+
+### Problem
+
+The README's OpenSearch credential drift note had become repetitive: it described the same 401 failure several times across separate paragraphs, which made the recovery path harder to scan during startup troubleshooting.
+
+### Root cause
+
+1. The documentation repeated the same facts in multiple forms: cluster health can be green while Basic Auth still fails, and the password must stay aligned between `env/.env` and `OpenSearch-3.6/.env`.
+2. The section mixed symptoms, causes, and recovery steps without a single concise summary.
+3. That made the most important operational detail harder to spot: `stack.sh start` now self-heals the drift before Koha starts.
+
+### Changes made
+
+File updated: `README.md`
+
+1. Replaced the long drift explanation with a shorter warning block.
+2. Kept the essential symptoms:
+  - `tests/test_opensearch_os01_auth_integration.sh` fails,
+  - `curl -u admin:<password>` returns 401,
+  - Koha or Dashboards show auth errors even while `os01` is up.
+3. Added a direct note that `./stack.sh start` now syncs Koha's `ELASTIC_OPTIONS` from `OpenSearch-3.6/.env`, probes the cluster, and reruns `initial_api_calls.sh` when the cluster still answers 401.
+
+### Why these changes were needed
+
+1. To make the recovery path faster to read when troubleshooting startup failures.
+2. To keep the documentation aligned with the new self-healing startup behavior.
+3. To avoid burying the actual operational rule under duplicated prose.
+
+### Effect
+
+1. The README now presents the drift problem in one compact block.
+2. The self-healing startup behavior remains documented where users look for OpenSearch troubleshooting.
+3. The older recovery commands are still available, but the primary path is clearer.
+
