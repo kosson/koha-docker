@@ -19,6 +19,15 @@ Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing eng
 | Available disk space | ≥ 15 GB | Images + Koha source + OS data |
 | Host user UID | **1000** | The Koha source dir must be owned by UID 1000 |
 
+### Clear cruft data of OpenSearch
+
+Run the following command. It will clean all the data set by previous unsuccessful starting attempts or mishaps. Cleans cluster data and certificates.
+
+```bash
+rm -rf OpenSearch-3.6/assets/opensearch/data/os01data/* OpenSearch-3.6/assets/opensearch/data/os02data/* OpenSearch-3.6/assets/opensearch/data/os03data/* OpenSearch-3.6/assets/opensearch/data/os04data/* OpenSearch-3.6/assets/opensearch/data/os05data/*;
+rm -rf OpenSearch-3.6/assets/ssl/*;
+```
+
 ### Rootless Docker note
 
 If Docker runs in rootless mode, two startup failures can occur out of the box.
@@ -118,7 +127,9 @@ Requirments for a viable password for OpenSearch:
 
 #### OpenSearch credential drift note (important)
 
-If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, `os01` may stay running but become `unhealthy` (healthcheck gets HTTP 401), and `dashboards` will fail to start because `depends_on` waits for `os01` health.
+If `OPENSEARCH_INITIAL_ADMIN_PASSWORD` is changed in one place but not fully synced, the cluster can authenticate inconsistently (for example, Basic Auth checks fail with HTTP 401 even when the node process is up).
+
+`os01` now uses a certificate-based healthcheck (mTLS with `admin.pem` / `admin-key.pem`), so its container health no longer depends directly on password-based Basic Auth. Password drift still breaks API calls and service integrations that use username/password authentication.
 
 First delete all data associated with the OpenSearch cluster. Being positioned in the OpenSearch-3.6 folder run the command:
 
@@ -589,8 +600,64 @@ The three components must be started **in this order**. The `koha-docker` compos
 
 ### Step 1 — Build the OpenSearch image (first time, or after Dockerfile changes)
 
+Use this sequence for:
+
+- first start on a machine;
+- any OpenSearch password rotation;
+- any stale-cluster recovery where auth/health is drifting.
+
+From the repository root, wipe previous node data and certificates:
+
 ```bash
-cd koha-docker/OpenSearch-3.6
+rm -rf OpenSearch-3.6/assets/opensearch/data/os0{1,2,3,4,5}data/*
+rm -rf OpenSearch-3.6/assets/ssl/*
+```
+
+Then enter the OpenSearch folder and regenerate local credentials/certs:
+
+```bash
+cd OpenSearch-3.6
+./opensearch_local_certificates_creator.sh
+```
+
+The script regenerates node certificates and updates password hashes in `assets/opensearch/config/os01/opensearch-security/internal_users.yml`.
+
+The output should be similar to the following (paths and generated values vary by machine):
+
+```bash
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=admin
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=os01
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=os02
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=os03
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=os04
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=os05
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=client
+Certificate request self-signature ok
+subject=C=RO, ST=ILFOV, L=MAGURELE, O=NIPNE, OU=DFCTI, CN=dashboards
+Compliance salt and SQL master key written to /media/expansion/DEVELOPMENT/koha-local/OpenSearch-3.6/.env.
+  OS_COMPLIANCE_SALT : lp4Llv8YbsWvi5jq
+  OS_QUERY_MASTERKEY : 302d7a8b52f34ee416404444f1d11908
+  (opensearch.yml files reference these via ${OS_COMPLIANCE_SALT} / ${OS_QUERY_MASTERKEY})
+File permissions set (certs: 775, config dirs: 775, config files: 775).
+Generating bcrypt hash via opensearch:3.6.0 hash.sh ...
+internal_users.yml — all user hashes updated.
+  hash : $2y$12$K6hj.UtPP0uNtSt6FMcGYO48ftC5XdQP4H951.kLKac9q1JBNkAwi
+
+NOTE: New certificates invalidate any existing cluster data.
+      Wipe data directories before the next cluster start:
+      rm -rf /media/expansion/DEVELOPMENT/koha-local/OpenSearch-3.6/assets/opensearch/data/os0{1,2,3,4,5}data/*
+```
+
+Now build the shared OpenSearch image:
+
+```bash
 docker compose build os01
 ```
 
@@ -611,7 +678,7 @@ Koha's Elasticsearch index configuration (`koha/etc/searchengine/elasticsearch/`
 
 Without the plugin, any attempt to create the Koha search indexes fails immediately with:
 
-```txt
+```log
 [400] [illegal_argument_exception]
 Custom Analyzer [icu_folding_normalizer] failed to find filter under name [icu_folding]
 ```
@@ -634,22 +701,62 @@ Skip this step on subsequent runs if the Dockerfile has not changed.
 
 ### Step 2 — Start the OpenSearch cluster
 
-```bash
-cd koha-docker/OpenSearch-3.6
-docker compose up -d
-```
-
-Wait for the cluster to reach **green** status before proceeding:
+Start the OpenSearch nodes first:
 
 ```bash
-until curl -sk -u 'admin:test@Cici24#ANA' \
-    https://localhost:9200/_cluster/health | grep -q '"status":"green"'; do
-  echo "Waiting for OpenSearch cluster..."; sleep 5
-done
-echo "Cluster is green"
+docker compose up -d os01 os02 os03 os04 os05
 ```
 
-This creates two Docker networks:
+Wait for `os01` to become healthy (its healthcheck uses mTLS with the mounted admin certificate/key and does not rely on Basic Auth password checks):
+
+```bash
+docker compose ps os01
+```
+
+Then validate cluster node membership and health:
+
+```bash
+set -a && source .env && set +a
+curl -ks -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://localhost:9200/_cat/nodes?v
+curl -ks -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://localhost:9200/_cluster/health?pretty
+```
+
+#### When to run `initial_api_calls.sh`
+
+Run `initial_api_calls.sh` only in these cases:
+
+- the auth check returns 401;
+- `tests/test_opensearch_os01_auth_integration.sh` fails;
+- you changed users/roles/passwords on an already-running cluster and need to push them live.
+
+On a clean first start (fresh data + freshly generated hashes), it is usually not required.
+
+Apply live security updates when needed:
+
+```bash
+set -a && source .env && set +a && bash initial_api_calls.sh
+```
+
+If you changed `.env` values after containers were created, recreate `os01` so the process gets fresh environment values (healthcheck auth itself is certificate-based):
+
+```bash
+docker compose up -d --force-recreate os01
+```
+
+Recommended validation:
+
+```bash
+bash ../tests/test_opensearch_os01_auth_integration.sh
+```
+
+After nodes are healthy and auth is verified, start Dashboards:
+
+```bash
+docker compose up -d dashboards
+docker compose ps os01 dashboards
+```
+
+This compose project creates two Docker networks:
 
 - `opensearch-36_osearch` — internal; all five OS nodes join it
 - `knonikl` — external bridge; used by Dashboards and the Koha container

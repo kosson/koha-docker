@@ -316,4 +316,3 @@ docker compose up -d --force-recreate os01
 docker compose ps os01 dashboards
 bash ../tests/test_opensearch_os01_auth_integration.sh
 ```
-

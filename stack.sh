@@ -201,9 +201,20 @@ start_opensearch() {
   fi
 
   pushd "${OPENSEARCH_DIR}" > /dev/null
-  docker compose up -d
+  # Start only core nodes first. dashboards depends_on os01:service_healthy;
+  # starting everything at once can fail with "dependency os01 failed to start"
+  # while the security plugin is still initializing.
+  docker compose up -d os01 os02 os03 os04 os05
   popd > /dev/null
-  ok "OpenSearch containers started (os01–os05 + dashboards)."
+  ok "OpenSearch core nodes started (os01–os05)."
+}
+
+start_opensearch_dashboards() {
+  hdr "Starting OpenSearch Dashboards"
+  pushd "${OPENSEARCH_DIR}" > /dev/null
+  docker compose up -d dashboards
+  popd > /dev/null
+  ok "OpenSearch Dashboards started."
 }
 
 wait_opensearch_green() {
@@ -500,6 +511,7 @@ case "${COMMAND}" in
     start_traefik
     start_opensearch
     wait_opensearch_green
+    start_opensearch_dashboards
     start_support_services
     wait_db_ready
     if [[ "${FRESH_DB}" == true ]]; then

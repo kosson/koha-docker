@@ -15,7 +15,8 @@ all_access:
 
 # Grants the Dashboards service-account user the built-in server role.
 # In OpenSearch 3.x the role was renamed from kibana_server to opensearch_dashboards_server.
-opensearch_dashboards_server:
+# Grants the Dashboards service-account user the built-in server role.
+kibana_server:
   reserved: false
   users:
   - "dashboards"

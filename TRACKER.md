@@ -258,6 +258,7 @@ at /usr/lib/x86_64-linux-gnu/perl-base/Carp.pm line 289
 **Root cause (same MARC data gap):** The imported MARC file contained item records with only `952$a` (homebranch = `MAIN`). The subfields `952$b` (holdingbranch) and `952$y` (item type) were absent. Koha stored those columns as `NULL` in the `items` table.
 
 `opac-detail.pl` iterates over every item and calls:
+
 ```perl
 $item->holding_library->opac_info(...)   # line ~715
 ```
@@ -3513,3 +3514,316 @@ The file was previously tracked by git. Running `git rm --cached` removes it fro
 | `OpenSearch-3.6/.env` | Added `OS_COMPLIANCE_SALT` and `OS_QUERY_MASTERKEY` variables with full explanatory comment block; removed from git tracking via `git rm --cached` |
 | `OpenSearch-3.6/.env.example` | New git-tracked template file for first-time setup on a new workstation |
 | `.gitignore` | Added `OpenSearch-3.6/.env` with comment explaining purpose and pointing to `.env.example` |
+
+---
+
+## 2026-06-24 - OpenSearch 3.6 os01 authentication mismatch and stale security state
+
+### Problem
+
+`docker compose up -d` in `OpenSearch-3.6` stalled on `os01` being unhealthy and blocked dependent services such as `dashboards`.
+
+Observed behavior:
+
+```txt
+dependency failed to start: container os01 is unhealthy
+```
+
+The healthcheck on `os01` was failing with HTTP 401 even though the node process itself was running.
+
+### Root cause
+
+Three settings were out of sync:
+
+1. The compose healthcheck authenticated with `admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}` from `.env`, but the live security state in the persistent `assets/opensearch/data/os01data/` mount still had an older security index.
+2. `initial_api_calls.sh` referenced `opensearch_dashboards_server`, but OpenSearch 3.6 exposed the Dashboards server role as `kibana_server` in the live security API.
+3. `roles_mapping.yml` used the same wrong role name, so the bootstrap script and the repository config both pointed at a role that did not exist in the running cluster.
+
+This caused two different failures at the same time:
+
+- the `os01` container healthcheck never became green because Basic Auth for the configured admin password returned 401;
+- the security bootstrap script reported `NOT_FOUND` for the Dashboards service-account mapping, which meant the security config was not being applied cleanly to the live cluster.
+
+### Wrong settings found and their implications
+
+- `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `.env` did not match the active security index state preserved in `os01data`, so changing the environment file alone was not enough to recover healthchecks.
+- `opensearch_dashboards_server` was used where the live cluster expected `kibana_server`, so role mapping updates failed even though the cluster itself was healthy.
+- The persisted `os01data` directory kept old cluster/security state across restarts, which meant stale credentials and role mappings could survive a `docker compose up -d` and keep reproducing the failure.
+
+### Changes made
+
+Files updated:
+
+- `OpenSearch-3.6/initial_api_calls.sh`
+  - Switched the Dashboards service-account mapping to `kibana_server`.
+  - Updated the `dashboards` internal user mapping so the security bootstrap writes a role that the live 3.6 cluster actually exposes.
+- `OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/roles_mapping.yml`
+  - Renamed the Dashboards server role entry from `opensearch_dashboards_server` to `kibana_server`.
+- `OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml`
+  - Updated the stored password hashes to match the current `OPENSEARCH_INITIAL_ADMIN_PASSWORD`.
+
+### Effect
+
+- `os01` now becomes healthy again under `docker compose up -d`.
+- The auth regression test passes when validating `admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}` against the live cluster.
+- `initial_api_calls.sh` no longer fails on the Dashboards role mapping and can be used to resync a running cluster after the security state drifts.
+- The cluster now starts with consistent runtime credentials, repository config, and persisted security state.
+
+### Validation run
+
+```bash
+cd OpenSearch-3.6
+docker compose up -d
+set -a && source .env && set +a && bash initial_api_calls.sh
+bash ../tests/test_opensearch_os01_auth_integration.sh
+docker compose ps os01 dashboards
+```
+
+Validation outcome:
+
+- `initial_api_calls.sh` completed without `NOT_FOUND` errors.
+- `tests/test_opensearch_os01_auth_integration.sh` passed.
+- `os01` reported `healthy`.
+
+---
+
+## 2026-06-24 - OpenSearch zero-state rebuild tooling and healthcheck hardening
+
+### Scope
+
+After fixing credential drift, additional work was done to make OpenSearch recovery deterministic and safer for repeated clean starts:
+
+1. Reworked the reset script to avoid host-wide Docker destruction.
+2. Added an end-to-end bootstrap script for raising the cluster from zero.
+3. Hardened `os01` healthchecks to remove dependency on password-based Basic Auth.
+4. Updated README runbooks to match the new runtime behavior.
+
+---
+
+### Problem A: reset script was globally destructive
+
+The original `OpenSearch-3.6/restart-to-clear-cluster.sh` used commands equivalent to:
+
+- stop all containers on the host
+- remove all containers on the host
+- remove dangling volumes globally
+
+This was unsafe for multi-project machines and could interrupt unrelated workloads.
+
+### Root cause
+
+The script was written with global Docker operations instead of being scoped to the `OpenSearch-3.6` compose project.
+
+### Fix applied
+
+`OpenSearch-3.6/restart-to-clear-cluster.sh` was rewritten to:
+
+1. `docker compose down --remove-orphans` (project-scoped teardown)
+2. remove only OpenSearch bind data: `assets/opensearch/data/os0{1..5}data/*`
+3. remove only generated credentials: `assets/ssl/*`
+4. remove only local OpenSearch image tag: `kosson/opensearch-icu:${OPEN_SEARCH_VERSION}`
+
+It now also prints explicit next steps for rebuilding and restarting.
+
+### Effect
+
+- Clean reset now affects only `OpenSearch-3.6` resources.
+- No unrelated containers/volumes are touched.
+- Rebuild-from-scratch flow is repeatable.
+
+---
+
+### Problem B: no single command to raise cluster from zero with validation
+
+Recovery required many manual commands and could still leave hidden drift if one step was skipped.
+
+### Fix applied
+
+New script created: `OpenSearch-3.6/raise-from-ground-up.sh`
+
+This script implements the full flow:
+
+1. run `restart-to-clear-cluster.sh`
+2. regenerate certs/hashes via `opensearch_local_certificates_creator.sh`
+3. rebuild image via `docker compose build os01`
+4. start nodes `os01..os05`
+5. wait for `os01` health
+6. verify auth with `.env` password
+7. auto-heal with `initial_api_calls.sh` + `--force-recreate os01` if auth is not HTTP 200
+8. start `dashboards`
+9. run final checks:
+  - compose status snapshot
+  - cluster node count = 5
+  - cluster status in {green, yellow}
+  - regression test `tests/test_opensearch_os01_auth_integration.sh`
+
+### Effect
+
+- One command performs full zero-state rebuild and validation.
+- Auth drift is auto-corrected in-script when detected.
+- Operator error from manual step ordering is reduced.
+
+---
+
+### Problem C: recurring BackendRegistry warning for admin auth during bootstrap
+
+Observed warning pattern in `os01` logs:
+
+```txt
+[WARN ][o.o.s.a.BackendRegistry] Authentication finally failed for admin from 172.28.0.x:port
+```
+
+### Investigation summary
+
+- Full ground-up rebuild succeeded with healthy cluster and passing auth integration test.
+- Runtime check confirmed `.env` admin password authenticated successfully (HTTP 200).
+- Warning was not persistent in healthy steady-state; behavior aligned with startup/probe timing and password-dependent checks.
+
+### Root cause
+
+`os01` healthcheck was based on Basic Auth with `admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}`. This created unnecessary coupling between container health and password synchronization timing.
+
+### Fix applied
+
+File updated: `OpenSearch-3.6/docker-compose.yml`
+
+`os01` healthcheck changed from password-based probe to certificate-based mTLS probe:
+
+- old: `curl ... -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://os01:9200/_cat/nodes`
+- new: `curl ... --cert admin.pem --key admin-key.pem https://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=2s`
+
+### Effect
+
+- `os01` health no longer depends directly on Basic Auth password consistency.
+- Startup warning noise tied to password auth probes is reduced.
+- Healthcheck now validates local TLS/admin-cert path and cluster readiness.
+
+---
+
+### Documentation alignment
+
+File updated: `README.md`
+
+Sections revised:
+
+1. OpenSearch manual Step 1 and Step 2 sequence (cleanup/build/start/verify).
+2. Explicit guidance on when `initial_api_calls.sh` should be run.
+3. Credential drift notes updated to clarify:
+  - password drift still breaks Basic Auth flows
+  - `os01` healthcheck is now certificate-based mTLS
+4. Wording adjusted to avoid implying that `os01` healthcheck performs password auth.
+
+### Effect
+
+- Runtime behavior and docs are now consistent.
+- Operators get a clearer decision tree for recovery actions.
+
+---
+
+### Files changed in this phase
+
+1. `OpenSearch-3.6/restart-to-clear-cluster.sh` (rewritten)
+2. `OpenSearch-3.6/raise-from-ground-up.sh` (new)
+3. `OpenSearch-3.6/docker-compose.yml` (os01 healthcheck hardening)
+4. `README.md` (OpenSearch startup/recovery documentation)
+
+### Validation performed
+
+1. `bash -n OpenSearch-3.6/restart-to-clear-cluster.sh`
+2. `bash -n OpenSearch-3.6/raise-from-ground-up.sh`
+3. `./OpenSearch-3.6/raise-from-ground-up.sh` end-to-end run
+4. `tests/test_opensearch_os01_auth_integration.sh` pass
+5. runtime checks:
+  - `curl -ks -u admin:<env-pass> https://localhost:9200/_cat/nodes?pretty`
+  - `docker compose ps os01 dashboards`
+  - `docker inspect os01 ...` health history
+
+---
+
+## 2026-06-24 - Fix `dependency os01 failed to start` during `stack.sh start`
+
+### Problem
+
+Running `./stack.sh start` could fail in the OpenSearch stage with:
+
+```txt
+Error dependency os01 failed to start
+dependency failed to start: container os01 is unhealthy
+```
+
+The failure happened while Compose was trying to start Dashboards, which depends on `os01` being healthy.
+
+### Root cause
+
+Two issues combined:
+
+1. **Startup ordering race in** `stack.sh`:
+  - `start_opensearch()` called `docker compose up -d` for all OpenSearch services at once, including Dashboards.
+  - Dashboards has `depends_on: os01: condition: service_healthy`, so if `os01` was not yet healthy, Compose could abort with a dependency failure.
+
+2. **Incorrect healthcheck target in** `OpenSearch-3.6/docker-compose.yml`:
+  - The certificate-based `os01` healthcheck was pointing to `https://localhost:9200/...`.
+  - Node config uses `network.host=os01`, so probing `localhost` could fail during runtime/startup and keep `os01` marked unhealthy.
+
+### Changes made
+
+#### File: `stack.sh`
+
+1. Updated `start_opensearch()` to start only core nodes first:
+
+```bash
+docker compose up -d os01 os02 os03 os04 os05
+```
+
+2. Added new function `start_opensearch_dashboards()`:
+
+```bash
+docker compose up -d dashboards
+```
+
+3. Updated `start` flow order:
+
+- Start Traefik
+- Start OpenSearch core nodes (`os01`-`os05`)
+- Wait for green cluster (`wait_opensearch_green`)
+- Start Dashboards
+- Continue with DB/Memcached/Koha
+
+This removes the dependency race by deferring Dashboards startup until after cluster readiness.
+
+#### File: `OpenSearch-3.6/docker-compose.yml`
+
+Updated `os01` healthcheck endpoint from `localhost` to `os01`:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "curl -ks --fail --cert /usr/share/opensearch/config/admin.pem --key /usr/share/opensearch/config/admin-key.pem 'https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=2s'"]
+```
+
+This keeps the mTLS-based probe but targets the hostname bound by OpenSearch node settings.
+
+### Effect
+
+1. `stack.sh start` no longer fails at Dashboards dependency resolution due to premature startup.
+2. `os01` health now reflects actual node readiness with a correct endpoint.
+3. OpenSearch startup is deterministic:
+  - core nodes first,
+  - readiness check,
+  - dashboards after health.
+
+### Validation
+
+Commands executed:
+
+```bash
+bash -n stack.sh
+./stack.sh start --no-logs --no-fresh-db
+```
+
+Observed outcome:
+
+1. OpenSearch nodes started.
+2. Cluster reached green.
+3. Dashboards started successfully after `os01` became healthy.
+4. The previous `dependency os01 failed to start` error did not recur.
+

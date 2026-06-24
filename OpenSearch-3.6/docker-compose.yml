@@ -61,7 +61,7 @@ services:
     networks:
       - osearch # All of the containers will join the same Docker bridge network
     healthcheck:
-      test: ["CMD-SHELL", "curl -ks --fail https://os01:9200/_cat/nodes?pretty -u \"admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}\""]
+      test: ["CMD-SHELL", "curl -ks --fail --cert /usr/share/opensearch/config/admin.pem --key /usr/share/opensearch/config/admin-key.pem 'https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=2s'"]
       interval: 5s
       timeout: 10s
       retries: 30

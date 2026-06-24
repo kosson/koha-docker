@@ -96,7 +96,7 @@ api "PATCH" "/_plugins/_security/api/internalusers" "Update dashboards user" \
 '[{"op":"add","path":"/dashboards","value":{
   "password":"'"${ADMIN_PASS}"'",
   "backend_roles":["admin","dashboards"],
-  "opendistro_security_roles":["dashboards","opensearch_dashboards_server"]
+     "opendistro_security_roles":["dashboards","kibana_server"]
 }}]'
 
 # ---------------------------------------------------------------------------
@@ -120,6 +120,8 @@ api "PUT" "/_plugins/_security/api/roles/dashboards" "Create/update dashboards r
 #    - hosts field is deprecated; use backend_roles + users instead
 #    - kibana_server renamed to opensearch_dashboards_server in 3.x
 # ---------------------------------------------------------------------------
+#    - OpenSearch 3.6 still exposes the reserved Dashboards server role as
+#      kibana_server
 api "PUT" "/_plugins/_security/api/rolesmapping/own_index" "Map own_index" \
 '{
   "backend_roles":[],
@@ -127,8 +129,8 @@ api "PUT" "/_plugins/_security/api/rolesmapping/own_index" "Map own_index" \
   "description":"Allow full access to an index named like the username"
 }'
 
-api "PUT" "/_plugins/_security/api/rolesmapping/opensearch_dashboards_server" \
-    "Map opensearch_dashboards_server (Dashboards service account)" \
+api "PUT" "/_plugins/_security/api/rolesmapping/kibana_server" \
+    "Map kibana_server (Dashboards service account)" \
 '{
   "backend_roles":["dashboards"],
   "users":["dashboards"]
