@@ -132,6 +132,8 @@ Everything you need to go from a fresh clone to a running Koha stack. Each step 
 Docker Engine 24+ and Docker Compose v2.20+ must be installed. Your host user must have **UID 1000** (the bind-mounted Koha source directory must be owned by that UID).
 First, go to the [Prerequisites](#prerequisites) section and read it carefully. Install and configure all the necessary software.
 
+Concerning Docker, it musn't be Docker Desktop. If you get any errors concerning the wrong socket, check the context docker is using to run with the following command `docker context ls`. If need, choose default with `docker context use default`.
+
 ### 2. Clone the Koha source tree
 
 Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:
@@ -156,7 +158,9 @@ Everything else has workable defaults. See [Initial configuration](#initial-conf
 
 #### OpenSearch cluster forming details
 
-First, create the necessary credential files. Run the `opensearch_local_certificates_creator.sh` script. This script will take into consideration the existing environment variables, and based on that will generate the necessary certificate files in the `./OpenSearch-3.6/assets/ssl` subfolder. At the moment of first run, the `.OpenSearch-3.6/assets/opensearch/data` subfolder will be created containing the corresponding data for each node of the cluster.
+First, bring the OpenSearch image with `docker pull opensearchproject/opensearch:3.6.0`.
+
+Second, create the necessary credential files. Run the `opensearch_local_certificates_creator.sh` script. This script will take into consideration the existing environment variables, and based on that will generate the necessary certificate files in the `./OpenSearch-3.6/assets/ssl` subfolder. At the moment of first run, the `.OpenSearch-3.6/assets/opensearch/data` subfolder will be created containing the corresponding data for each node of the cluster.
 
 The following details are useful in case you run into trouble with the OpenSearch cluster.
 If you modified the password used for OpenSearch, this meaning the values of `ELASTIC_OPTION` and as a consequence also the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `env/.env` file, you need to make sure you modify the value of `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `.env` file in the OpenSearch-3.6 subfolder. Remember that if you have modified the password for the aforementioned environment variables you MUST run the `opensearch_local_certificates_creator.sh` script. Otherwise, the cluster is not forming. Node `os01` errors out. Create also the `OpenSearch-3.6/assets/ssl` subfolder if not found.
@@ -192,6 +196,7 @@ Typical symptoms of drift:
 For a fully clean recovery, reset and rebuild OpenSearch from zero:
 
 ```bash
+docker pull opensearchproject/opensearch:3.6.0
 cd OpenSearch-3.6
 ./raise-from-ground-up.sh
 ```
@@ -680,6 +685,7 @@ rm -rf OpenSearch-3.6/assets/ssl/*
 Then enter the OpenSearch folder and regenerate local credentials/certs:
 
 ```bash
+docker pull opensearchproject/opensearch:3.6.0
 cd OpenSearch-3.6
 ./opensearch_local_certificates_creator.sh
 ```

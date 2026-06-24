@@ -233,9 +233,16 @@ images without changing any file.
 
 ---
 
+## Resolved Issues (cross-references)
+
+The following issues were diagnosed and fixed during active development. Full details — including root cause analysis, exact file changes, and verification steps — are recorded in [TRACKER.md](TRACKER.md).
+
+| Date | Symptom | Root cause | TRACKER.md section |
+|---|---|---|---|
+| 2026-06-24 | `os01` health timeout; cluster never starts | `AccessDeniedException: /usr/share/opensearch/data/nodes` — bind-mounted data dirs not writable by uid 1000 | *2026-06-24 — Harden OpenSearch bootstrap script* |
+| 2026-06-24 | `bash: find: command not found` during Step 3b | `findutils` not present on PATH inside the helper container used to repair permissions | *2026-06-24 — Harden OpenSearch bootstrap script* |
+| 2026-06-24 | `error getting credentials - exec: "docker-credential-desktop": executable file not found` | `~/.docker/config.json` had `"credsStore": "desktop"` which is only valid on Docker Desktop for Mac/Windows, not on Linux | Removed stale `credsStore` entry from `~/.docker/config.json` |
+
+---
+
 *End of ISSUES.md*
-
-
-os01  | org.opensearch.bootstrap.StartupException: OpenSearchException[failed to bind service]; nested: AccessDeniedException[/usr/share/opensearch/data/nodes];
-
-https://oneuptime.com/blog/post/2026-01-25-fix-docker-oci-runtime-create-failed-errors/view

@@ -17,6 +17,14 @@ cd "${SCRIPT_DIR}"
 
 OS_ENV_FILE="${SCRIPT_DIR}/.env"
 AUTH_TEST_SCRIPT="${SCRIPT_DIR}/../tests/test_opensearch_os01_auth_integration.sh"
+DATA_ROOT_DIR="${SCRIPT_DIR}/assets/opensearch/data"
+NODE_DATA_DIRS=(
+    "${DATA_ROOT_DIR}/os01data"
+    "${DATA_ROOT_DIR}/os02data"
+    "${DATA_ROOT_DIR}/os03data"
+    "${DATA_ROOT_DIR}/os04data"
+    "${DATA_ROOT_DIR}/os05data"
+)
 
 log() {
     printf '[raise-from-ground-up] %s\n' "$*"
@@ -31,6 +39,27 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
+prepare_node_data_dirs() {
+    local dir
+    for dir in "${NODE_DATA_DIRS[@]}"; do
+        mkdir -p "${dir}"
+    done
+}
+
+fix_node_data_permissions() {
+    local image_tag
+    image_tag="kosson/opensearch-icu:${OPEN_SEARCH_VERSION:-3.6.0}"
+
+    prepare_node_data_dirs
+
+    # Use a root process in the freshly built OpenSearch image to ensure bind mounts
+    # are writable by the runtime user (uid:gid 1000:1000) on all hosts.
+    docker run --rm --user 0 \
+        -v "${DATA_ROOT_DIR}:/data" \
+        "${image_tag}" \
+        bash -lc 'chown -R 1000:1000 /data && chmod -R u+rwX,g+rwX,o-rwx /data'
+}
+
 wait_for_os01_healthy() {
     local timeout_s="${1:-300}"
     local start now elapsed status
@@ -41,6 +70,11 @@ wait_for_os01_healthy() {
         if [[ "${status}" == "healthy" ]]; then
             log "os01 is healthy."
             return 0
+        fi
+
+        if docker logs --tail 120 os01 2>/dev/null | grep -q 'AccessDeniedException: /usr/share/opensearch/data/nodes'; then
+            docker compose ps os01 || true
+            die "os01 cannot write to bind-mounted data path (/usr/share/opensearch/data). Check ownership/permissions of assets/opensearch/data/os0{1..5}data."
         fi
 
         now="$(date +%s)"
@@ -97,6 +131,9 @@ bash ./opensearch_local_certificates_creator.sh
 
 log "Step 3/8: Build os01 image (shared by os01-os05)..."
 docker compose build os01
+
+log "Step 3b/8: Ensure bind-mounted node data dirs are writable by uid 1000..."
+fix_node_data_permissions
 
 log "Step 4/8: Start OpenSearch nodes os01-os05..."
 docker compose up -d os01 os02 os03 os04 os05
