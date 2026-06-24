@@ -19,17 +19,9 @@ Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing eng
 | Available disk space | ≥ 15 GB | Images + Koha source + OS data |
 | Host user UID | **1000** | The Koha source dir must be owned by UID 1000 |
 
-### Clear cruft data of OpenSearch
-
-Run the following command. It will clean all the data set by previous unsuccessful starting attempts or mishaps. Cleans cluster data and certificates.
-
-```bash
-rm -rf OpenSearch-3.6/assets/opensearch/data/os01data/* OpenSearch-3.6/assets/opensearch/data/os02data/* OpenSearch-3.6/assets/opensearch/data/os03data/* OpenSearch-3.6/assets/opensearch/data/os04data/* OpenSearch-3.6/assets/opensearch/data/os05data/*;
-rm -rf OpenSearch-3.6/assets/ssl/*;
-```
-
 ### Rootless Docker note
 
+As a general note, avoid this mode.
 If Docker runs in rootless mode, two startup failures can occur out of the box.
 
 **1. Privileged port bind failure (Traefik)**
@@ -104,8 +96,8 @@ cd ..
 
 6. Open Koha in browser:
 
-- OPAC: `http://localhost:8080`
-- Staff: `http://localhost:8081`
+- OPAC: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8080`
+- Staff: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8081`
 
 If you stop and resume later avoid wiping the database:
 
@@ -131,7 +123,7 @@ More on the `Configuring the environment variables` section down bellow.
 
 ---
 
-## Quick setup
+## Setup notes
 
 Everything you need to go from a fresh clone to a running Koha stack. Each step links to the relevant section for full details. If any of these operations went wrong, there is a section bellow on how to start all the services manually.
 
@@ -318,7 +310,7 @@ The project has two independent TLS layers:
 
 ## Configuring the environment variables
 
-This section manages all the environment varaibles set for this project to run.
+This section manages all the environment variables set for this project to run.
 
 ### Initial configuration
 
@@ -402,7 +394,7 @@ docker compose \
 
 Current `ELASTIC_OPTIONS` value (all on one line in `env/.env`):
 
-```txt
+```yaml
 ELASTIC_OPTIONS=<ssl_options><SSL_verify_mode>0</SSL_verify_mode></ssl_options><userinfo>admin:test@Cici24#ANA</userinfo><client_version>7</client_version>
 ```
 
