@@ -286,7 +286,7 @@ The `koha-db-data` volume persists across reboots and `./stack.sh stop`. Use `--
 
 Look into the structure of the management script: [Automated startup — `stack.sh`](#automated-startup----stacksh)
 
-If you get the following error `IPv4 forwarding is disabled. Networking will not work.` whicj was signaled on a Linux Mint, then you need to edit `/etc/sysctl.conf` file, find the line which contains `net.ipv4.ip_forward=1` and uncomment. Run `sudo sysctl -p` commmand to reload the settings. Better: `systemctl restart network`.
+If you get the following error `IPv4 forwarding is disabled. Networking will not work.` which was signaled on a Linux Mint, then you need to edit `/etc/sysctl.conf` file, find the line which contains `net.ipv4.ip_forward=1` and uncomment. Run `sudo sysctl -p` commmand to reload the settings. Better: `systemctl restart network`.
 
 ### 5. Open Koha in the browser
 
@@ -1037,6 +1037,7 @@ curl -sk -u 'admin:test@Cici24#ANA' https://localhost:9200/_cluster/health | pyt
 # OpenSearch Dashboards via Traefik — expect HTTP 302 (redirect to /app/home)
 curl -sI http://dashboards.localhost | head -1
 ```
+
 ---
 
 ## Data preparation — things to take into consideration
@@ -1191,7 +1192,7 @@ Traefik's built-in ACME client can request and renew certificates from Let's Enc
 
 > **Scope**: Let's Encrypt certs cover only the public-facing Traefik edge (OPAC, Staff interface, Dashboards). The OpenSearch cluster's internal node-to-node TLS always uses the pre-generated self-signed CA — Let's Encrypt cannot replace it.
 
-### Prerequisites
+### Prerequisites for Letțs Encrypt
 
 | Requirement | Details |
 |---|---|
