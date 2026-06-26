@@ -2,6 +2,8 @@
 
 This is a setup of Docker containers created to work with the latest Koha ILS. Some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker). All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file. The working version of Koha is 26.
 
+Some notes about how all is put together are in the docs subfolder.
+
 Use the source code as is. Remember this is a development project to experiment with Koha, to migrate data, etc. This is not a production suite.
 
 This setup creates a self-contained Docker Compose environment for **Koha ILS** development, backed by **MariaDB 10.11** and an external **OpenSearch 3.6** cluster.
