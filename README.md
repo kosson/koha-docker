@@ -148,6 +148,59 @@ git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
 
 The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match. The versions that this solution works with are Koha 25 and 26.
 
+### Patches
+
+Because the Koha source tree is refreshed from upstream with:
+
+```bash
+git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
+```
+
+any local hotfixes are lost unless they are stored as patch files and re-applied.
+
+Current patch inventory:
+
+| Patch file | Target | Purpose | Upstream state |
+|---|---|---|---|
+| `patches/0001-auth-tag-structure-only-full-group-by.patch` | `koha/admin/auth_tag_structure.pl` | Fix authority-type editor query for strict SQL mode (`ONLY_FULL_GROUP_BY`) by grouping `authtypetext` too | Keep applying until upstream Koha includes equivalent fix |
+
+Apply all patches after cloning Koha (run from the `koha-docker/` root):
+
+```bash
+git -C koha apply --check "$PWD"/patches/*.patch
+git -C koha apply "$PWD"/patches/*.patch
+```
+
+`--check` is a dry-run validation only. It never modifies files. The second command (without `--check`) is the one that applies patches.
+
+Recommended single command:
+
+```bash
+./apply-patches.sh
+```
+
+Alternative (apply one patch):
+
+```bash
+git -C koha apply --check "$PWD"/patches/0001-auth-tag-structure-only-full-group-by.patch
+git -C koha apply "$PWD"/patches/0001-auth-tag-structure-only-full-group-by.patch
+```
+
+If you prefer relative paths, use a subshell so path resolution happens from inside `koha/`:
+
+```bash
+( cd koha && git apply --check ../patches/*.patch && git apply ../patches/*.patch )
+```
+
+Verify patch application:
+
+```bash
+git -C koha status --short
+git -C koha diff -- admin/auth_tag_structure.pl
+```
+
+If upstream already contains the fix, `git apply --check` will fail because the hunk is no longer needed. In that case, remove the patch from `patches/` and update this section.
+
 ### 3. Configure `env/.env`
 
 Some of the settings were mentioned above in `Security-critical environment variables` section. Rename the template.env file to `.env`. Open `env/.env` and update **at minimum** these two values:

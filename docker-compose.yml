@@ -1,6 +1,7 @@
 services:
     db:
         image: ${DB_IMAGE:-mariadb:10.11}
+        command: ["--sql-mode=${DB_SQL_MODE:-STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION}"]
         restart: always
         environment:
             MYSQL_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}

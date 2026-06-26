@@ -1,0 +1,13 @@
+diff --git a/admin/auth_tag_structure.pl b/admin/auth_tag_structure.pl
+index 963f4eb..742eb7e 100755
+--- a/admin/auth_tag_structure.pl
++++ b/admin/auth_tag_structure.pl
+@@ -187,7 +187,7 @@ if ( $op eq 'add_form' ) {
+     # called automatically if an unexisting authtypecode is selected
+ } elsif ( $op eq 'authtype_create' ) {
+     $sth = $dbh->prepare(
+-        "select count(*),auth_tag_structure.authtypecode,authtypetext from auth_tag_structure,auth_types where auth_types.authtypecode=auth_tag_structure.authtypecode group by auth_tag_structure.authtypecode"
++        "select count(*),auth_tag_structure.authtypecode,authtypetext from auth_tag_structure,auth_types where auth_types.authtypecode=auth_tag_structure.authtypecode group by auth_tag_structure.authtypecode,authtypetext"
+     );
+     $sth->execute;
+     my @existingauthtypeloop;
