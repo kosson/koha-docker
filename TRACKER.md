@@ -4215,6 +4215,12 @@ What it validates:
 1. The fix now works regardless of DB container sql_mode defaults.
 2. Future regressions in this query path are caught by automated DB-dependent tests.
 
+
+This seems to be linked with the following Bugzilla bugs:
+
+- https://bugs.koha-community.org/bugzilla3/show_bug.cgi?id=42148 and
+- https://bugs.koha-community.org/bugzilla3/show_bug.cgi?id=41406
+
 ---
 
 ## 2026-06-26 - Correction: final remediation is configuration-only (no Koha source changes)
