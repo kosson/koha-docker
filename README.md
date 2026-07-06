@@ -247,6 +247,7 @@ Requirements for a viable password for OpenSearch:
 **OpenSearch password:** `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` file and `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in the `OpenSearch-3.6/.env` file must match. Both files ship with the same default value: `test@Cici24#ANA`. Verify also the `./OpenSearch-3.6/assets/dashboards/opensearch_dashboards.yml` file to hve the same password: `opensearch.password: "test@Cici24#ANA"`. Otherwise you will get into a credential drift, and your OpenSearch cluster will not form.
 
 The OpenSearch-3.6 folder provides you with two important scripts that help raising the cluster:
+
 - `raise-from-ground-up.sh`, and
 - `restart-to-clear-cluster.sh`.
 
@@ -602,6 +603,12 @@ The following subcommands and options are available:
 
 # Attach to Koha startup logs at any time
 ./stack.sh logs
+
+# Create a recovery bundle with env files + a MariaDB dump
+./stack.sh backup
+
+# Restore a recovery bundle after a prune/reset and bring the stack back up
+./stack.sh restore backups/koha-backup-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
 ### Build options
@@ -688,6 +695,30 @@ After a successful reset, run a full start to reinitialise everything:
 ./stack.sh start          # start with demo data (default)
 ./stack.sh start --build  # also rebuild images before starting
 ```
+
+### Backup and restore
+
+For long-running development work, use the built-in backup flow before pruning Docker volumes or resetting the stack:
+
+```bash
+./stack.sh backup
+./stack.sh backup --output /srv/backups/koha-backup.tar.gz
+```
+
+The backup bundle captures:
+
+- `env/.env`
+- `traefik/.env`
+- `OpenSearch-3.6/.env`
+- a compressed dump of the `koha_kohadev` database
+
+Restore with:
+
+```bash
+./stack.sh restore /srv/backups/koha-backup.tar.gz
+```
+
+Restore overwrites the three env files above, recreates the MariaDB schema, imports the dump, and then starts Traefik, OpenSearch, Dashboards, and Koha automatically. Use `--no-logs` if you want it to return immediately after the stack is back up.
 
 **When to use `reset` vs `stop`:**
 

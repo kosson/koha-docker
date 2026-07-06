@@ -58,21 +58,17 @@ assert_contains \
     "systempreferences"
 
 assert_contains \
-    "probe checks borrowers table" \
-    "borrowers"
+    "probe queries information_schema.tables" \
+    "information_schema.tables"
 
 # 3. The probe must use the correct credentials variables
 assert_contains \
-    "probe uses DB_HOSTNAME" \
-    '--host="${DB_HOSTNAME}"'
+    "probe uses koha-common defaults file" \
+    '--defaults-file=/etc/mysql/koha-common.cnf'
 
 assert_contains \
-    "probe uses DB_USER" \
-    '--user="${DB_USER}"'
-
-assert_contains \
-    "probe uses DB_PASSWORD" \
-    '--password="${DB_PASSWORD}"'
+    "probe sends the database name" \
+    "DB_NAME"
 
 # 4. On a positive probe result, USE_EXISTING_DB must be set to yes
 assert_contains \

@@ -25,12 +25,14 @@ else
 fi
 
 SUITES=(
+    "${TESTS_DIR}/test_stack_sh_static.sh"
     "${TESTS_DIR}/test_run_sh_static.sh"
     "${TESTS_DIR}/test_db_detection_unit.sh"
     "${TESTS_DIR}/test_restart_integration.sh"
 )
 
 SUITE_LABELS=(
+    "Static analysis         (stack.sh backup/restore)"
     "Static analysis         (files/run.sh)"
     "Unit tests              (mock mysql)"
     "Integration test        (Docker restart)"
@@ -72,7 +74,7 @@ run_suite() {
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  Koha-Docker test suite — restart/existing-DB regression    ║"
+echo "║  Koha-Docker test suite — restart + backup/restore checks    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${RESET}"
 

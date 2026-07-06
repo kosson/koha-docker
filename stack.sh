@@ -8,6 +8,8 @@
 #   status    Show running containers and OpenSearch cluster health
 #   logs      Tail Koha container logs
 #   build     Build images only (no start)
+#   backup    Create a portable backup bundle for env files + MariaDB data
+#   restore   Restore env files + MariaDB data from a backup bundle
 #
 # Run './stack.sh --help' for full usage.
 
@@ -75,6 +77,30 @@ DB_NAME="koha_${KOHA_INSTANCE}"
 DB_USER="koha_${KOHA_INSTANCE}"
 KOHA_PROJECT="$(basename "${KOHA_PROJECT_DIR}")"   # → koha-docker
 DB_CONTAINER="${KOHA_PROJECT}-db-1"
+BACKUP_ROOT="${SCRIPT_DIR}/backups"
+
+reload_runtime_config() {
+  KOHA_INSTANCE="$(_env_val "${KOHA_ENV_FILE}" KOHA_INSTANCE "${KOHA_INSTANCE}")"
+  KOHA_DOMAIN="$(_env_val "${KOHA_ENV_FILE}" KOHA_DOMAIN "${KOHA_DOMAIN}")"
+  KOHA_INTRANET_SUFFIX="$(_env_val "${KOHA_ENV_FILE}" KOHA_INTRANET_SUFFIX "${KOHA_INTRANET_SUFFIX}")"
+  KOHA_OPAC_PORT="$(_env_val "${KOHA_ENV_FILE}" KOHA_OPAC_PORT "${KOHA_OPAC_PORT}")"
+  KOHA_INTRANET_PORT="$(_env_val "${KOHA_ENV_FILE}" KOHA_INTRANET_PORT "${KOHA_INTRANET_PORT}")"
+  KOHA_USER="$(_env_val "${KOHA_ENV_FILE}" KOHA_USER "${KOHA_USER}")"
+  KOHA_PASS="$(_env_val "${KOHA_ENV_FILE}" KOHA_PASS "${KOHA_PASS}")"
+  KOHA_DB_ROOT_PASSWORD="$(_env_val "${KOHA_ENV_FILE}" KOHA_DB_ROOT_PASSWORD "${KOHA_DB_ROOT_PASSWORD}")"
+  KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH "${KOHA_ELASTICSEARCH}")"
+  KOHA_ELASTIC_OPTIONS="$(_env_val "${KOHA_ENV_FILE}" ELASTIC_OPTIONS "${KOHA_ELASTIC_OPTIONS}")"
+  LOAD_DEMO_DATA="$(_env_val "${KOHA_ENV_FILE}" LOAD_DEMO_DATA "${LOAD_DEMO_DATA}")"
+  TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT "${TRAEFIK_HTTP_PORT}")"
+  TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT "${TRAEFIK_HTTPS_PORT}")"
+  TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT "${TRAEFIK_DASHBOARD_PORT}")"
+  ACME_EMAIL="$(_env_val "${TRAEFIK_DIR}/.env" ACME_EMAIL "${ACME_EMAIL}")"
+  OS_ADMIN_PASS="$(_env_val "${OPENSEARCH_DIR}/.env" OPENSEARCH_INITIAL_ADMIN_PASSWORD "${OS_ADMIN_PASS}")"
+  DASHBOARDS_DOMAIN="$(_env_val "${OPENSEARCH_DIR}/.env" DASHBOARDS_DOMAIN "${DASHBOARDS_DOMAIN}")"
+  TLS_CERTRESOLVER="$(_env_val "${KOHA_ENV_FILE}" TLS_CERTRESOLVER "${TLS_CERTRESOLVER}")"
+  DB_NAME="koha_${KOHA_INSTANCE}"
+  DB_USER="koha_${KOHA_INSTANCE}"
+}
 
 # ---------------------------------------------------------------------------
 # Compose wrappers
@@ -408,6 +434,120 @@ reset_database() {
   ok "Database '${DB_NAME}' ready."
 }
 
+create_backup_bundle() {
+  hdr "Creating backup bundle"
+
+  local output_path stage_dir timestamp
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  output_path="${BACKUP_OUTPUT:-${BACKUP_ROOT}/koha-backup-${timestamp}.tar.gz}"
+
+  mkdir -p "${BACKUP_ROOT}" "$(dirname "${output_path}")"
+  stage_dir="$(mktemp -d)"
+  trap 'rm -rf "${stage_dir}"' RETURN
+
+  start_support_services
+  wait_db_ready
+
+  mkdir -p "${stage_dir}/config" "${stage_dir}/database"
+  cp "${KOHA_ENV_FILE}" "${stage_dir}/config/env.env"
+  cp "${TRAEFIK_DIR}/.env" "${stage_dir}/config/traefik.env"
+  cp "${OPENSEARCH_DIR}/.env" "${stage_dir}/config/opensearch.env"
+
+  cat > "${stage_dir}/manifest.txt" <<EOF
+created_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+repo_root=${SCRIPT_DIR}
+koha_instance=${KOHA_INSTANCE}
+database=${DB_NAME}
+includes=env/.env, traefik/.env, OpenSearch-3.6/.env, database dump
+EOF
+
+  log "Dumping MariaDB database '${DB_NAME}'..."
+  docker exec "${DB_CONTAINER}" \
+    mysqldump -uroot -p"${KOHA_DB_ROOT_PASSWORD}" \
+    --single-transaction --routines --triggers --events "${DB_NAME}" \
+    | gzip -9 > "${stage_dir}/database/${DB_NAME}.sql.gz"
+
+  log "Packing backup archive at ${output_path}..."
+  tar -C "${stage_dir}" -czf "${output_path}" .
+
+  rm -rf "${stage_dir}"
+  trap - RETURN
+
+  ok "Backup written to ${output_path}"
+}
+
+restore_backup_bundle() {
+  hdr "Restoring backup bundle"
+
+  local archive_path stage_dir
+  [[ -n "${RESTORE_ARCHIVE}" ]] || die "restore requires a backup archive path. Use: ./stack.sh restore /path/to/koha-backup.tar.gz"
+  archive_path="${RESTORE_ARCHIVE}"
+  [[ -f "${archive_path}" ]] || die "Backup archive not found: ${archive_path}"
+
+  warn "This will overwrite env/.env, traefik/.env and OpenSearch-3.6/.env, then recreate '${DB_NAME}'."
+  warn "Any running containers should be stopped before restoring."
+  echo ""
+  read -rp "Type 'restore' to continue: " answer
+  if [[ "${answer}" != "restore" ]]; then
+    log "Restore cancelled."
+    return 0
+  fi
+
+  stop_koha
+  stop_support_services
+  stop_opensearch
+  stop_traefik
+
+  stage_dir="$(mktemp -d)"
+  trap 'rm -rf "${stage_dir}"' RETURN
+
+  tar -xzf "${archive_path}" -C "${stage_dir}"
+
+  [[ -f "${stage_dir}/config/env.env" ]] || die "Backup archive is missing config/env.env"
+  [[ -f "${stage_dir}/config/traefik.env" ]] || die "Backup archive is missing config/traefik.env"
+  [[ -f "${stage_dir}/config/opensearch.env" ]] || die "Backup archive is missing config/opensearch.env"
+
+  cp "${stage_dir}/config/env.env" "${KOHA_ENV_FILE}"
+  cp "${stage_dir}/config/traefik.env" "${TRAEFIK_DIR}/.env"
+  cp "${stage_dir}/config/opensearch.env" "${OPENSEARCH_DIR}/.env"
+
+  reload_runtime_config
+
+  ok "Configuration files restored."
+
+  start_support_services
+  wait_db_ready
+  reset_database
+
+  if [[ -f "${stage_dir}/database/${DB_NAME}.sql.gz" ]]; then
+    log "Importing MariaDB dump into '${DB_NAME}'..."
+    gzip -dc "${stage_dir}/database/${DB_NAME}.sql.gz" | \
+      docker exec -i "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" "${DB_NAME}"
+    ok "Database restored."
+  else
+    warn "No database dump found in the backup archive; the database was only reinitialized."
+  fi
+
+  ensure_opensearch_certs
+  start_traefik
+  start_opensearch
+  wait_opensearch_green
+  ensure_opensearch_auth
+  start_opensearch_dashboards
+
+  export USE_EXISTING_DB=yes
+  start_koha
+
+  rm -rf "${stage_dir}"
+  trap - RETURN
+
+  if [[ "${FOLLOW_LOGS}" == true ]]; then
+    follow_logs
+  fi
+
+  ok "Restore complete. The stack has been brought back up."
+}
+
 stop_support_services() {
   hdr "Stopping MariaDB + Memcached"
   koha_compose stop db memcached 2>/dev/null || true
@@ -546,6 +686,8 @@ ${BOLD}Commands:${RESET}
   status      Show running containers and OpenSearch cluster health
   logs        Tail Koha container logs
   build       Build images without starting anything
+  backup      Create a tar.gz backup bundle for env files + MariaDB data
+  restore     Restore env files + MariaDB data from a backup bundle
 
 ${BOLD}Options for 'start' and 'build':${RESET}
   --build-opensearch    Rebuild the kosson/opensearch-icu image (analysis-icu plugin)
@@ -571,6 +713,9 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") status                   # Check what's running
   $(basename "$0") logs                     # Attach to Koha logs
   $(basename "$0") build --build-opensearch # Build OS images only
+  $(basename "$0") backup                   # Create a backup in ./backups
+  $(basename "$0") backup --output /tmp/koha-backup.tar.gz
+  $(basename "$0") restore backups/koha-backup-YYYYMMDDTHHMMSSZ.tar.gz
 
 EOF
 }
@@ -585,13 +730,15 @@ BUILD_OPENSEARCH=false
 BUILD_KOHA=false
 FRESH_DB=true
 FOLLOW_LOGS=true
+BACKUP_OUTPUT=""
+RESTORE_ARCHIVE=""
 # Read LOAD_DEMO_DATA from env/.env (default 'yes'); --no-demo-data / --with-demo-data override
 LOAD_DEMO_DATA="$(_env_val "${KOHA_ENV_FILE}" LOAD_DEMO_DATA yes)"
 
 # Parse command (first positional arg)
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    start|stop|restart|reset|status|logs|build) COMMAND="$1"; shift ;;
+    start|stop|restart|reset|status|logs|build|backup|restore) COMMAND="$1"; shift ;;
     --help|-h) usage; exit 0 ;;
     --*) : ;;  # no subcommand given, use default "start"
     *) die "Unknown command: '$1'. Run '$(basename "$0") --help' for usage." ;;
@@ -608,8 +755,22 @@ while [[ $# -gt 0 ]]; do
     --no-logs)           FOLLOW_LOGS=false ;;
     --no-demo-data)      LOAD_DEMO_DATA=no ;;
     --with-demo-data)    LOAD_DEMO_DATA=yes ;;
+    --output)
+      [[ $# -ge 2 ]] || die "--output requires a file path"
+      BACKUP_OUTPUT="$2"
+      shift ;;
+    --input)
+      [[ $# -ge 2 ]] || die "--input requires a backup archive path"
+      RESTORE_ARCHIVE="$2"
+      shift ;;
     --help|-h)           usage; exit 0 ;;
-    *) die "Unknown option: '$1'. Run '$(basename "$0") --help' for usage." ;;
+    *)
+      if [[ "${COMMAND}" == "restore" && -z "${RESTORE_ARCHIVE}" ]]; then
+        RESTORE_ARCHIVE="$1"
+      else
+        die "Unknown option: '$1'. Run '$(basename "$0") --help' for usage."
+      fi
+      ;;
   esac
   shift
 done
@@ -715,6 +876,16 @@ case "${COMMAND}" in
     [[ "${BUILD_OPENSEARCH}" == true ]] && build_opensearch
     [[ "${BUILD_KOHA}"       == true ]] && build_koha
     ok "Build complete."
+    ;;
+
+  backup)
+    check_prereqs
+    create_backup_bundle
+    ;;
+
+  restore)
+    check_prereqs
+    restore_backup_bundle
     ;;
 
 esac

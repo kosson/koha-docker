@@ -32,6 +32,8 @@ This will:
 
 **Time to first run**: 5-15 minutes (depends on OpenSearch build + startup)
 
+Sometimes it is not going ok. If error run just `./stack.sh start`. You'll be ok.
+
 ### Resume (no rebuild)
 
 ```bash
@@ -55,6 +57,18 @@ Faster startup. Skips loading 436 sample MARC records.
 ```
 
 Builds the OpenSearch image without starting any services.
+
+### Backup and Restore
+
+Use the built-in recovery flow before pruning Docker volumes or moving the stack to another host:
+
+```bash
+./stack.sh backup
+./stack.sh backup --output /srv/backups/koha-backup.tar.gz
+./stack.sh restore /srv/backups/koha-backup.tar.gz
+```
+
+The backup bundle includes the three runtime env files plus a compressed dump of the Koha MariaDB database. Restore overwrites those env files, recreates the schema, imports the dump, and then starts the stack back up automatically. Use `--no-logs` if you want the command to return immediately once startup is done.
 
 ---
 
