@@ -51,8 +51,13 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 | `KOHA_DB_PORT` | MariaDB port | `3306` | Internal |
 | `KOHA_DB_NAME` | Database name | `koha_kohadev` | — |
 | `KOHA_DB_USER` | DB user | `koha_kohadev` | — |
+| `MESSAGE_BROKER_HOST` | RabbitMQ host | `rabbitmq` | External broker container |
+| `MESSAGE_BROKER_PORT` | RabbitMQ STOMP port | `61613` | External broker container |
+| `MESSAGE_BROKER_USER` | RabbitMQ user | `koha` | External broker container |
+| `MESSAGE_BROKER_PASS` | RabbitMQ password | `password` | External broker container |
+| `MESSAGE_BROKER_VHOST` | RabbitMQ vhost | `koha_kohadev` | External broker container |
 | `START_APACHE` | Start Apache | `yes` | — |
-| `START_RABBITMQ` | Start RabbitMQ | `yes` | — |
+| `START_RABBITMQ` | Start RabbitMQ | `no-op` | Legacy toggle; broker now runs separately |
 | `START_KOHA_SERVICE` | Start Koha | `yes` | — |
 | `START_KOHA_JOB_WORKER` | Start job worker | `yes` | — |
 | `ENABLE_APACHE` | Enable Apache config | `yes` | — |

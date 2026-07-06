@@ -67,6 +67,8 @@ cd koha-docker
 git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
 ```
 
+At this moment, version Koha 26.06.00 will be fetched.
+
 2. Create env file and set required values:
 
 ```bash
@@ -84,6 +86,8 @@ Edit `env/.env` at minimum:
 
 4. Raise OpenSearch from zero (recommended deterministic path):
 
+Read OpenSearch-3.6/README.md file. Create `.env` or rename `template.env`.
+
 ```bash
 docker pull opensearchproject/opensearch:3.6.0
 cd OpenSearch-3.6
@@ -93,13 +97,21 @@ cd ..
 
 If the cluster is raised and green, bring it down before the next step `docker compose down -v --remove-orphans`.
 
-5. Start Koha stack:
+5. Apply all patches
+
+Run the script `./apply-patches.sh`. This is a needed to fix some issues with the original source code.
+
+6. Start Koha stack:
+
+First move to the project root `cd ..`. You are in OpenSearch-3.6 right now after you finished testing the cluster. Execute:
 
 ```bash
 ./stack.sh start --build
 ```
 
-6. Open Koha in browser:
+Sometimes it errors out because of some stuborn packages. in this case, simply run `./stack.sh start`. It will fly straight to the target. One thing to point out. The sample data has an issue documented in section `#### Non-fatal warnings explained` of the `docs/TRACKER.md` file. See `PCDATA invalid Char value 31`. 
+
+7. Open Koha in browser:
 
 - OPAC: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8080`
 - Staff: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8081`
@@ -109,6 +121,8 @@ If you stop and resume later avoid wiping the database:
 ```bash
 ./stack.sh start --no-fresh-db
 ```
+
+How to stop after finishing working? Simple: `./stack.sh stop`. Restart? there you go `./stack.sh start --no-fresh-db`. See down below the `./stack.sh` script options.
 
 ## Security-critical environment variables
 
@@ -264,6 +278,17 @@ If you need an in-place live credential resync on an already running cluster, us
 set -a && source .env && set +a && bash initial_api_calls.sh
 docker compose up -d --force-recreate os01
 ```
+
+#### Reindexing Koha records into OpenSearch
+
+If Koha shows `Records are not indexed in Elasticsearch` in the staff interface, run the rebuild from inside the Koha application container, not from the OpenSearch container:
+
+```bash
+docker exec -it <koha-container-name> bash
+koha-elasticsearch --rebuild -d -b -a <instance-name>
+```
+
+Use your actual Koha container name and instance name. For this repository the instance is commonly `kohadev`. for example `docker exec -it koha-docker-koha-1 bash` followed by `koha-elasticsearch --rebuild -d -b -a kohadev`.
 
 Keep these values aligned every time you rotate credentials:
 
@@ -558,6 +583,10 @@ The following subcommands and options are available:
 
 # Start without wiping the database
 ./stack.sh start --no-fresh-db
+
+# Start with or without sample data
+./stack.sh start --no-demo-data
+./stack.sh start --with-demo-data
 
 # Start in the background (no log tailing)
 ./stack.sh start --no-logs

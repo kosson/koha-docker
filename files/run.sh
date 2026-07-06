@@ -38,6 +38,12 @@ if [ -z ${KOHA_INTRANET_URL} ]; then
     unset _pub_port
 fi
 
+export MESSAGE_BROKER_HOST=${MESSAGE_BROKER_HOST:-rabbitmq}
+export MESSAGE_BROKER_PORT=${MESSAGE_BROKER_PORT:-61613}
+export MESSAGE_BROKER_USER=${MESSAGE_BROKER_USER:-koha}
+export MESSAGE_BROKER_PASS=${MESSAGE_BROKER_PASS:-${KOHA_DB_PASSWORD}}
+export MESSAGE_BROKER_VHOST=${MESSAGE_BROKER_VHOST:-koha_${KOHA_INSTANCE}}
+
 export PATH=${PATH}:/kohadevbox/bin:/kohadevbox/koha/node_modules/.bin/:/kohadevbox/node_modules/.bin/
 
 # Node stuff
@@ -189,7 +195,13 @@ fi
 chmod +x ${BUILD_DIR}/bin/*
 
 cd ${BUILD_DIR}
-koha-create --request-db ${KOHA_INSTANCE} --memcached-servers memcached:11211
+koha-create --request-db ${KOHA_INSTANCE} \
+    --memcached-servers memcached:11211 \
+    --mb-host ${MESSAGE_BROKER_HOST} \
+    --mb-port ${MESSAGE_BROKER_PORT} \
+    --mb-user ${MESSAGE_BROKER_USER} \
+    --mb-pass ${MESSAGE_BROKER_PASS} \
+    --mb-vhost ${MESSAGE_BROKER_VHOST}
 
 envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/vimrc > /var/lib/koha/${KOHA_INSTANCE}/.vimrc
 chown "${KOHA_INSTANCE}-koha" "/var/lib/koha/${KOHA_INSTANCE}/.vimrc"
@@ -539,30 +551,23 @@ if ! koha-z3950-responder --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
     echo "[INFO] koha-z3950-responder enable skipped; continuing"
 fi
 
-# Start RabbitMQ BEFORE koha-common so background job workers connect via STOMP.
-# Workers attempt the STOMP connection only once at startup; if RabbitMQ is not
-# yet running they silently fall back to 10-second DB polling, which still works
-# but loses instant job notifications.
-service rabbitmq-server start || true # Don't crash if rabbitmq-server didn't start
-
-# Wait up to 30 s for the STOMP port (61613) to become available.
-if service rabbitmq-server status >/dev/null 2>&1; then
-    echo "[rabbitmq] Waiting for STOMP port 61613..."
-    _stomp_ready=no
-    for _i in $(seq 1 30); do
-        if nc -z localhost 61613 2>/dev/null; then
-            _stomp_ready=yes
-            break
-        fi
-        sleep 1
-    done
-    if [ "${_stomp_ready}" = "yes" ]; then
-        echo "[rabbitmq] STOMP port 61613 is ready"
-    else
-        echo "[rabbitmq] WARNING: STOMP port 61613 not ready after 30 s — workers will use DB polling fallback"
+# RabbitMQ now runs as an external sibling container. Wait for its STOMP port
+# before starting Koha workers so background jobs keep instant notifications.
+echo "[rabbitmq] Waiting for STOMP port ${MESSAGE_BROKER_HOST}:${MESSAGE_BROKER_PORT}..."
+_stomp_ready=no
+for _i in $(seq 1 30); do
+    if nc -z "${MESSAGE_BROKER_HOST}" "${MESSAGE_BROKER_PORT}" 2>/dev/null; then
+        _stomp_ready=yes
+        break
     fi
-    unset _stomp_ready _i
+    sleep 1
+done
+if [ "${_stomp_ready}" = "yes" ]; then
+    echo "[rabbitmq] STOMP port ${MESSAGE_BROKER_HOST}:${MESSAGE_BROKER_PORT} is ready"
+else
+    echo "[rabbitmq] WARNING: STOMP port ${MESSAGE_BROKER_HOST}:${MESSAGE_BROKER_PORT} not ready after 30 s — workers will use DB polling fallback"
 fi
+unset _stomp_ready _i
 
 service koha-common start 2>&1 | grep -v "you must provide at least one instance name" || true
 

@@ -12,6 +12,23 @@ services:
             - koha-db-data:/var/lib/mysql
         networks:
             - kohanet
+    rabbitmq:
+        image: ${RABBITMQ_IMAGE:-rabbitmq:3-management}
+        restart: always
+        command:
+            - sh
+            - -lc
+            - >-
+              rabbitmq-plugins enable --offline rabbitmq_stomp rabbitmq_management >/dev/null &&
+              exec rabbitmq-server
+        environment:
+            RABBITMQ_DEFAULT_USER: ${KOHA_RABBITMQ_USER:-koha}
+            RABBITMQ_DEFAULT_PASS: ${KOHA_RABBITMQ_PASS:-password}
+            RABBITMQ_DEFAULT_VHOST: ${KOHA_RABBITMQ_VHOST:-koha_${KOHA_INSTANCE:-kohadev}}
+        volumes:
+            - koha-rabbitmq-data:/var/lib/rabbitmq
+        networks:
+            - kohanet
     koha:
         image: ${KOHA_IMAGE_TAG:-kosson/koha-ubuntu:latest}
         pull_policy: missing
@@ -20,6 +37,7 @@ services:
         depends_on:
             - db
             - memcached
+            - rabbitmq
         cap_add:
             - ALL
         volumes:
@@ -61,6 +79,11 @@ services:
             # Root password for the MariaDB container — must match MYSQL_ROOT_PASSWORD
             # on the db service. Set in env/.env as KOHA_DB_ROOT_PASSWORD.
             KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
+            MESSAGE_BROKER_HOST: ${MESSAGE_BROKER_HOST:-rabbitmq}
+            MESSAGE_BROKER_PORT: ${MESSAGE_BROKER_PORT:-61613}
+            MESSAGE_BROKER_USER: ${KOHA_RABBITMQ_USER:-koha}
+            MESSAGE_BROKER_PASS: ${KOHA_RABBITMQ_PASS:-password}
+            MESSAGE_BROKER_VHOST: ${KOHA_RABBITMQ_VHOST:-koha_${KOHA_INSTANCE:-kohadev}}
             # Public-facing HTTP port for URL generation (OPACBaseURL / staffClientBaseURL).
             # Must match TRAEFIK_HTTP_PORT. Port 80 = no port suffix in browser URLs.
             KOHA_PUBLIC_PORT: ${KOHA_PUBLIC_PORT:-80}
@@ -137,6 +160,7 @@ services:
 
 volumes:
     koha-db-data:
+    koha-rabbitmq-data:
 
 networks:
     kohanet:

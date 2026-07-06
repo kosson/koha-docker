@@ -70,8 +70,8 @@ The entrypoint script performs all runtime initialization: URL generation, packa
    ├── if START_APACHE=yes:
    │   ├── service apache2 start
    │   └── service apache2 reload
-   ├── if START_RABBITMQ=yes:
-   │   └── service koha-common restart
+   ├── wait for MESSAGE_BROKER_HOST:MESSAGE_BROKER_PORT to become available
+   │   └── RabbitMQ is now an external sibling container
    ├── if START_KOHA_SERVICE=yes:
    │   └── koha-service kohadev start
    └── if START_KOHA_JOB_WORKER=yes:
@@ -122,7 +122,12 @@ The templates reference `${KOHA_INSTANCE}`, `${KOHA_DB_PASSWORD}`, `${KOHA_OPAC_
 | `KOHA_ELASTICSEARCH` | Enable OpenSearch search | no |
 | `REBUILD_OPENSEARCH_INDEX` | Rebuild search index | yes |
 | `START_APACHE` | Start Apache HTTPD | yes |
-| `START_RABBITMQ` | Start RabbitMQ | yes |
+| `MESSAGE_BROKER_HOST` | RabbitMQ host | rabbitmq |
+| `MESSAGE_BROKER_PORT` | RabbitMQ STOMP port | 61613 |
+| `MESSAGE_BROKER_USER` | RabbitMQ user | koha |
+| `MESSAGE_BROKER_PASS` | RabbitMQ password | password |
+| `MESSAGE_BROKER_VHOST` | RabbitMQ vhost | koha_kohadev |
+| `START_RABBITMQ` | Legacy local-broker toggle | no-op in external-broker mode |
 | `START_KOHA_SERVICE` | Start Koha service | yes |
 | `START_KOHA_JOB_WORKER` | Start job worker | yes |
 | `SYNC_REPO` | Path to Koha source | /home/kosson/Documents/koha |

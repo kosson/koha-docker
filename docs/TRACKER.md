@@ -1376,8 +1376,11 @@ koha-1 exited with code 0
 | Warning | Cause | Impact |
 |---|---|---|
 | `Error: worker not running for kohadev` | `koha-create` tries to restart the worker before the DB is populated | None — worker starts fine later |
-| `PCDATA invalid Char value 31` (biblio 369) | Sample MARC record in `misc4dev` test data contains a control character (0x1F) in an XML field | None — that one record is skipped; all others are indexed |
+| `PCDATA invalid Char value 31` (biblio 369) | One bibliographic row in `biblio_metadata` contains a literal ASCII 31 control character inside stored MARCXML. In the current database it is `biblio_metadata.id=368` / `biblionumber=369`, and the malformed byte is visible in the XML payload itself. This matches the known sample-data record shipped through `misc4dev` and not an OpenSearch cluster failure. | None — Koha skips that one record during indexing; the rest of the bibliographic index continues to build. |
+| `Cannot determine authority type for record: 1` | The authority indexer can parse `authid=1`, but `Koha::SearchEngine::Elasticsearch` cannot infer an authority type from that record while building `match-heading`. The record exists as `authtypecode=PERSO_NAME`, but its MARCXML has no normal heading field to classify from, so `GuessAuthTypeCode()` returns nothing. | None — that authority record is skipped for match-heading generation; the rest of the authority index continues. |
 | `Error: Plack already running for kohadev` | `run.sh` calls `koha-plack --start` twice (once in `do_all_you_can_do.pl` and once at the end of the script) | None — second call is a no-op |
+
+The important distinction is that these are data-quality warnings, not OpenSearch service faults. The cluster can still be healthy while Koha reports missing indexed records if one or more source records are malformed or not classifiable for index generation.
 
 ---
 
