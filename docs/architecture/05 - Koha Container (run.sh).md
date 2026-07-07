@@ -2,7 +2,6 @@
 title: "Koha Container Entrypoint (run.sh)"
 tags: [run.sh, entrypoint, initialization, crlf-normalization, package-installation, database-probe, elasticsearch-config, apache-setup, milestone-logging, envsubst]
 ---
-
 # Koha Container Entrypoint (run.sh)
 
 Location: `/home/kosson/Documents/koha-docker/files/run.sh` (585 lines)
@@ -104,13 +103,9 @@ The templates reference `${KOHA_INSTANCE}`, `${KOHA_DB_PASSWORD}`, `${KOHA_OPAC_
 ## Key Design Decisions
 
 1. **Single entrypoint, not multiple CMDs**: Everything runs in one script rather than using a process manager like supervisor. Services are started with `service` commands.
-
 2. **CRLF normalization at runtime too**: Even though the Dockerfile normalizes at build time, run.sh does it again. This catches CRLF from git checkout or editor changes after the image was built.
-
 3. **Authenticated SQL for DB probe**: Uses `mysql -uroot -p... -e 'SELECT 1'` instead of `mysqladmin ping`. This fixes a race condition where the port opens before the database is ready (documented in TRACKER.md).
-
 4. **Milestone log for stack.sh**: The string `koha-testing-docker has started up` is the signal that `stack.sh` scans for. When found, it prints the URL summary.
-
 5. **Opensearch CA cert handling**: If `OPENSEARCH_CA_CERT` is set, the cert is copied into the container and OpenSearch is configured with HTTPS.
 
 ## Important Environment Variables

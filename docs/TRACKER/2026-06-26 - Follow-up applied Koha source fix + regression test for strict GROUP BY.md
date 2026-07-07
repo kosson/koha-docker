@@ -1,5 +1,5 @@
 ---
-title: Follow-up: applied Koha source fix + regression test for strict GROUP BY
+title: "Follow-up: applied Koha source fix + regression test for strict GROUP BY"
 date: 2026.06.26
 tags:
  - Koha

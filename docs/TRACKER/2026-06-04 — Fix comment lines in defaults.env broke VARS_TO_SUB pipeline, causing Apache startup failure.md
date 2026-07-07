@@ -1,5 +1,5 @@
 ---
-title: Fix: comment lines in defaults.env broke VARS_TO_SUB pipeline, causing Apache startup failure
+title: "Fix: comment lines in defaults.env broke VARS_TO_SUB pipeline, causing Apache startup failure"
 date: 2026.06.04
 tags:
  - comments

@@ -2,43 +2,41 @@
 title: "Architecture Overview"
 tags: [architecture, topology, overview, services, data-flow]
 ---
-
 # Architecture Overview
 
 The Koha Docker project is a self-contained, multi-container development environment for Koha ILS (version 25/26). It packages the entire stack — database, search, caching, web server, reverse proxy — into a reproducible Docker Compose setup.
-
 ## Topology
 
 ```
-                          ┌─────────────────────────────────────┐
-                          │            Host Machine              │
-                          │                                      │
-   Browser ──────────► traefik (Traefik reverse proxy)          │
-      │                         │                                │
-      │   HTTP :8000 / HTTPS    │   HTTPS :443 (Let's Encrypt)  │
-      │                         │                                │
-      │              ┌──────────┼──────────┐                     │
-      │              │          │          │                     │
-      ▼              ▼          ▼          ▼                     │
-   OPAC         Staff      Dashboards  Traefik Dashboard        │
-   :8080         :8081      :5601       :8083                   │
-      │              │          │          │                     │
-      │         ┌────┴────┐    │          │                     │
-      │         │  koha   │    │          │                     │
-      │         │container│    │          │                     │
-      │         └────┬────┘    │          │                     │
-      │              │         │          │                     │
-      │         ┌────┴─────────┴──────────┴───┐                │
-      │         │    Docker Networks (5 total) │                │
-      │         └────┬─────────┬──────────┬───┘                │
-      │              │         │          │                     │
-      ▼              ▼         ▼          ▼                     │
-   ┌────────┐  ┌──────────┐  ┌───────────┐  ┌──────────┐       │
-   │   db   │  │  memcached│  │  os01-os05 │  │ dashboards│      │
-   │MariaDB │  │  (port 11211)│ │OS 3.6 cluster│ │  :5601   │      │
-   │ :3306  │  │            │  │  :9200      │  │          │      │
-   └────────┘  └──────────┘  └───────────┘  └──────────┘       │
-                          └─────────────────────────────────────┘
+                          ┌──────────────────────────────────────────────┐
+                          │            Host Machine                      │
+                          │                                              │
+   Browser ──────────► traefik (Traefik reverse proxy)                   │
+      │                                  │                               │
+      │   HTTP :8000 / HTTPS             │   HTTPS :443 (Let's Encrypt)  │
+      │                                  │                               │
+      │              ┌───────────────────┼──────────┐                    │
+      │              │                   │          │                    │
+      ▼              ▼                   ▼          ▼                    │
+   OPAC            Staff            Dashboards  Traefik Dashboard        │
+   :8080           :8081              :5601       :8083                  │
+      │              │                   │          │                    │
+      │         ┌────┴────┐              │          │                    │
+      │         │  koha   │              │          │                    │
+      │         │container│              │          │                    │
+      │         └────┬────┘              │          │                    │
+      │              │                   │          │                    │
+      │         ┌────┴───────────────────┴──────────┴───┐                │
+      │         │    Docker Networks (5 total)          │                │
+      │         └────┬───────────────────┬──────────┬───┘                │
+      │              │                   │          │                    │
+      ▼              ▼                   ▼          ▼                    │
+   ┌────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────┐         │
+   │   db   │  │  memcached   │  │  os01-os05   │  │ dashboards│         │
+   │MariaDB │  │  (port 11211)│  │OS 3.6 cluster│  │  :5601    │         │
+   │ :3306  │  │              │  │  :9200       │  │           │         │
+   └────────┘  └──────────────┘  └──────────────┘  └───────────┘         │
+                          └──────────────────────────────────────────────┘
 ```
 
 ## Four Compose Projects

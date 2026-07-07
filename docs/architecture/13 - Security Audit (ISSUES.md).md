@@ -2,12 +2,9 @@
 title: "Security Audit (ISSUES.md)"
 tags: [security-audit, vulnerability-assessment, cap-add, plaintext-secrets, tls-disabled, ca-key-exposure, external-networks, uid-collision, healthcheck, ipv6, rate-limiting, network-policy, remediation]
 ---
-
 # Security Audit (ISSUES.md)
 
 Full catalog of known security, stability, and operational issues.
-
----
 
 ## Critical Issues
 
@@ -75,8 +72,6 @@ volumes:
 - Only `root-ca.pem` (public) should be shared across nodes
 - `root-ca-key.pem` (private) should stay on the host only
 
----
-
 ## High Issues
 
 ### 5. External Networks Not Auto-Created
@@ -135,8 +130,6 @@ healthcheck:
 - Use environment variables or mounted secrets instead
 - Add `.gitignore` patterns for sensitive files
 
----
-
 ## Medium Issues
 
 ### 9. Mixed Image/Build Semantics
@@ -183,7 +176,6 @@ build: { context: . }
 
 **Remediation**: Same as #7 above.
 
----
 
 ## Low Issues
 
@@ -230,8 +222,6 @@ MEMCACHED_IMAGE: memcached:1.6
 **Risk**: All containers on the same network can reach each other. No micro-segmentation.
 
 **Remediation**: Use Docker network policies or separate networks for stricter isolation.
-
----
 
 ## Summary Matrix
 

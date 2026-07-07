@@ -1,5 +1,5 @@
 ---
-title: Machine-local OpenSearch security values: stop git pull from clobbering compliance salt and SQL masterkey
+title: "Machine-local OpenSearch security values: stop git pull from clobbering compliance salt and SQL masterkey"
 date: 2026-06-22
 tags:
  - OpenSearch

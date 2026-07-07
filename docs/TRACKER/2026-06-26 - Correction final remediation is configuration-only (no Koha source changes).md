@@ -1,5 +1,5 @@
 ---
-title: Correction: final remediation is configuration-only (no Koha source changes)
+title: "Correction: final remediation is configuration-only (no Koha source changes)"
 date: 2026.06.26
 tags:
  - configuration

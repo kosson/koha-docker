@@ -2,13 +2,9 @@
 title: "Demo Data & MARC Import"
 tags: [demo-data, marc, marc21, insert_data.pl, opensearch-index, z3950, patron-credentials, sample-data, data-loading]
 ---
-
 # Demo Data & MARC Import
 
 How sample data is loaded and how to manage MARC records.
-
----
-
 ## Demo Data Loading
 
 ### How It Works
@@ -69,8 +65,6 @@ LOAD_DEMO_DATA=no
 ./stack.sh start --build
 ```
 
----
-
 ## MARC Import Script
 
 ### Location
@@ -105,8 +99,6 @@ docker exec koha-docker-koha-1 perl /kohadevbox/misc4dev/insert_data.pl --instan
 3. Imports records using Koha's import API
 4. Creates associated authorities, items, and patrons
 5. Rebuilds the OpenSearch index (if enabled)
-
----
 
 ## OpenSearch Index Rebuilding
 
@@ -157,8 +149,6 @@ docker logs koha-docker-koha-1 | grep -i elastic
 docker exec koha-docker-koha-1 echo $KOHA_ELASTICSEARCH
 ```
 
----
-
 ## Importing Custom MARC Records
 
 ### From a MARC File
@@ -183,8 +173,6 @@ docker exec koha-docker-koha-1 koha-marc-import --file /tmp/my-records.xml --for
 2. Navigate to: **Administration** → **Import/Export** → **Z39.50/SRU Import**
 3. Configure Z39.50 servers or upload MARC files
 4. Import records
-
----
 
 ## Database Records After Import
 
@@ -211,9 +199,6 @@ Username: librarian
 Password: librarian
 (Admin/superlibrarian account)
 ```
-
----
-
 ## Pitfalls
 
 1. **Slow first import** — The first import loads 436 records + authorities + items. This can take several minutes. Don't assume it's hung.

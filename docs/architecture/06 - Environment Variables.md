@@ -2,12 +2,9 @@
 title: "Environment Variables"
 tags: [environment, variables, .env, credentials, secrets, derived-variables, domain-strategy, nip.io, password-sync]
 ---
-
 # Environment Variables
 
 Three `.env` files control the entire stack. Each has a different scope.
-
----
 
 ## Main Config: `env/.env`
 
@@ -62,7 +59,6 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 | `START_KOHA_JOB_WORKER` | Start job worker | `yes` | — |
 | `ENABLE_APACHE` | Enable Apache config | `yes` | — |
 | `ENABLE_APACHE_SSL` | Enable Apache SSL | `no` | — |
-
 ### ELASTIC_OPTIONS Structure
 
 ```xml
@@ -76,8 +72,6 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 
 The `<userinfo>` section is auto-synced by `stack.sh` to match `OPENSEARCH_INITIAL_ADMIN_PASSWORD`.
 
----
-
 ## OpenSearch Config: `OpenSearch-3.6/.env`
 
 Used by: `OpenSearch-3.6/docker-compose.yml`
@@ -89,8 +83,6 @@ Used by: `OpenSearch-3.6/docker-compose.yml`
 | `OS_CLUSTER_NAME` | Cluster name | `koha-cluster` |
 | `OPENSEARCH_JAVA_OPTS` | JVM options | `-Xms1g -Xmx1g` (or larger) |
 
----
-
 ## Traefik Config: `traefik/.env`
 
 Used by: `traefik/docker-compose.yaml`
@@ -101,8 +93,6 @@ Used by: `traefik/docker-compose.yaml`
 | `TRAEFIK_HTTPS_PORT` | HTTPS entrypoint | `8443` |
 | `TRAEFIK_DASHBOARD_PORT` | Dashboard API | `8083` |
 | `ACME_EMAIL` | Let's Encrypt email | — |
-
----
 
 ## Generated (Derived) Variables
 
@@ -118,8 +108,6 @@ These are computed by `stack.sh` from the env files:
 | `DB_NAME` | `koha_${KOHA_INSTANCE}` | `koha_kohadev` |
 | `DB_USER` | `koha_${KOHA_INSTANCE}` | `koha_kohadev` |
 
----
-
 ## Secrets Management (⚠️ Critical)
 
 All passwords are stored in **plaintext** in `.env` files. This is a documented security risk (ISSUES.md).
@@ -131,8 +119,6 @@ Current secrets:
 - Git Bugzilla password in `ELASTIC_OPTIONS` userinfo
 
 **Recommendation from ISSUES.md**: Move all secrets to a gitignored `env/.env` file (or `env/secrets.env`) and keep `env/defaults.env` with only non-secret defaults.
-
----
 
 ## Domain Strategy
 

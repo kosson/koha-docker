@@ -1,0 +1,221 @@
+{
+  "main": {
+    "id": "02e9afbfef25ee2e",
+    "type": "split",
+    "children": [
+      {
+        "id": "b83408373086bfcf",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8a7b8be4fb7e9581",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "architecture/17 - Perl Integration in Koha.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "17 - Perl Integration in Koha"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e62cb1b38f0d334c",
+    "type": "split",
+    "children": [
+      {
+        "id": "23209152dbead7e8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e226e9cd6399b72c",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "6c39222e5a74d212",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "tag:#OpenSearch",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "67e987a81220ba6a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "3e56d8c3784ec8d8",
+    "type": "split",
+    "children": [
+      {
+        "id": "a1fbcb51669ea81f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "9df53b8b4176e133",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "architecture/17 - Perl Integration in Koha.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "ef150817c561d7a1",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "architecture/17 - Perl Integration in Koha.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "f5f3e82ae5400e04",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "b983775c38a4c275",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "97683427d150a5f0",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "architecture/17 - Perl Integration in Koha.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "8a7b8be4fb7e9581",
+  "lastOpenFiles": [
+    "architecture/16 - Dockerfile Breakdown.md",
+    "architecture/15 - Demo Data & MARC Import.md",
+    "architecture/14 - Patches & Hotfixes.md",
+    "architecture/13 - Security Audit (ISSUES.md).md",
+    "architecture/12 - Troubleshooting.md",
+    "architecture/11 - Operations & Maintenance.md",
+    "architecture/10 - MariaDB & Database.md",
+    "architecture/09 - OpenSearch Cluster.md",
+    "architecture/06 - Environment Variables.md",
+    "architecture/07 - Networking.md",
+    "architecture/08 - TLS & Security.md",
+    "architecture/05 - Koha Container (run.sh).md",
+    "architecture/04 - Stack.sh Orchestrator.md",
+    "architecture/03 - Docker Compose Deep Dive.md",
+    "architecture/02 - Container Breakdown.md",
+    "architecture/01 - Architecture Overview.md",
+    "architecture/00 - MOC - Map of Content.md",
+    "TrackerBaseObsidianSpecific.base",
+    "TRACKER/2026-06-26 - Koha authority-type editor crash under MySQL MariaDB `ONLY_FULL_GROUP_BY` (DB-side fix, no Koha source patch).md",
+    "TRACKER/2026-06-26 - Follow-up applied Koha source fix + regression test for strict GROUP BY.md",
+    "TRACKER/2026-06-26 - Correction final remediation is configuration-only (no Koha source changes).md",
+    "TRACKER/2026-06-24 - Self-heal OpenSearch auth drift before Koha startup.md",
+    "TRACKER/2026-06-24 - Protect OpenSearch SSL bootstrap from directory-vs-file path corruption.md",
+    "TRACKER/2026-06-24 - OpenSearch zero-state rebuild tooling and healthcheck hardening.md",
+    "TRACKER/2026-06-24 - OpenSearch 3.6 os01 authentication mismatch and stale security state.md",
+    "TRACKER/2026-06-24 - Harden OpenSearch bootstrap script against data-permission and helper-runtime failures.md",
+    "TRACKER/2026-06-24 - Fix `dependency os01 failed to start` during `stack.sh start`.md"
+  ]
+}

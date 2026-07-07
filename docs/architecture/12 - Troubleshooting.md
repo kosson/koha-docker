@@ -2,12 +2,9 @@
 title: "Troubleshooting"
 tags: [troubleshooting, diagnostics, netcheck.sh, opensearch-errors, mariadb-errors, koha-errors, network-issues, traefik-issues, recovery, password-sync, memlock, oom]
 ---
-
 # Troubleshooting
 
 Common issues and how to diagnose/fix them.
-
----
 
 ## Diagnostic Tool: netcheck.sh
 
@@ -36,8 +33,6 @@ bash netcheck.sh
 7. **Memcached** — running, TCP from koha, stats response
 8. **Traefik** — ping endpoint, API reachable, router registration (koha-opac, koha-staff, dashboards), port open
 9. **Koha direct (OPAC/Staff)** — TCP + HTTP response on ports 8080/8081
-
----
 
 ## Common Errors
 
@@ -276,8 +271,6 @@ bash netcheck.sh
    grep TRAEFIK_HTTP_PORT traefik/.env
    # Default: 8000
    ```
-
----
 
 ## Recovery Procedures
 

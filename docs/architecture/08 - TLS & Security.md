@@ -2,12 +2,9 @@
 title: "TLS & Security"
 tags: [tls, security, certificates, mtls, traefik, letsencrypt, cap-add, secrets-management, password-sync, openssl, x509, vulnerabilities]
 ---
-
 # TLS & Security
 
 Two independent TLS layers operate in this stack.
-
----
 
 ## Layer 1: OpenSearch Cluster TLS (mTLS)
 

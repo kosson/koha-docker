@@ -1,5 +1,5 @@
 ---
-title: opensearch_local_certificates_creator.sh: automatic internal_users.yml hash update
+title: "opensearch_local_certificates_creator.sh: automatic internal_users.yml hash update"
 date: 2026-05-27
 tags:
  - opensearch

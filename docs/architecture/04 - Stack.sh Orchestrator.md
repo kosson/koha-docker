@@ -2,7 +2,6 @@
 title: "Stack.sh Orchestrator"
 tags: [stack.sh, startup, commands, build, deploy, network-creation, log-scraping, credential-sync]
 ---
-
 # Stack.sh Orchestrator
 
 The main management script. Location: `/home/kosson/Documents/koha-docker/stack.sh` (722 lines)

@@ -2,7 +2,6 @@
 title: "Map of Content — Koha Docker Architecture"
 tags: [map-of-content, overview, navigation, index]
 ---
-
 # Map of Content — Koha Docker Architecture
 
 This vault is a navigational guide to the Koha Docker project at `~/Documents/koha-docker`. Use these notes to understand the architecture, operations, and known issues.

@@ -1,5 +1,5 @@
 ---
-title: Strengthen db-detect probe: use root credentials via koha-common.cnf
+title: "Strengthen db-detect probe: use root credentials via koha-common.cnf"
 date: 2026-06-04
 tags:
  - koha-common

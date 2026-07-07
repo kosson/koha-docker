@@ -1,5 +1,5 @@
 ---
-title: Security: stop hardcoding MariaDB root password in run.sh
+title: "Security: stop hardcoding MariaDB root password in run.sh"
 date: 2026.06.04
 tags:
  - security

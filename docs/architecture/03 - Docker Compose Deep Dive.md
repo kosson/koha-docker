@@ -2,13 +2,9 @@
 title: "Docker Compose Deep Dive"
 tags: [docker-compose, orchestration, services, volumes, networks, compose-files]
 ---
-
 # Docker Compose Deep Dive
 
 How the three compose files work together.
-
----
-
 ## Main Compose (`docker-compose.yml`)
 
 Location: `/home/kosson/Documents/koha-docker/docker-compose.yml`
@@ -75,8 +71,6 @@ networks:
    - `frontend` → Traefik routing
 
 4. **Direct ports** (8080, 8081) are kept as fallback when Traefik is not used.
-
----
 
 ## OpenSearch Compose (`OpenSearch-3.6/docker-compose.yml`)
 
@@ -156,8 +150,6 @@ networks:
 4. **mTLS between nodes**: Each node gets its own PEM cert + key, plus the root CA. Node-to-node transport uses client certs.
 
 5. **Network pinning**: `knonikl` has explicit `name: knonikl` to avoid Docker's automatic prefixing (e.g., `OpenSearch-3.6_knonikl`).
-
----
 
 ## Traefik Compose (`traefik/docker-compose.yaml`)
 

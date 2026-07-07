@@ -2,13 +2,12 @@
 title: Fix MARC import commit failure (missing branch FK constraint)
 date: 2026.05.22
 tags:
- - MARC
- - import
- - FK
- - constraint
- - stage_marc_for_import
- - marc_import_commit_batch
- - 952$a
+  - MARC
+  - import
+  - FK
+  - constraint
+  - stage_marc_for_import
+  - marc_import_commit_batch
 ---
 # 2026-05-22 — Fix MARC import commit failure (missing branch FK constraint)
 

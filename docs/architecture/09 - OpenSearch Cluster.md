@@ -2,12 +2,9 @@
 title: "OpenSearch Cluster"
 tags: [opensearch, cluster, os01, os02, os03, os04, os05, mTLS, health-checks, performance-analyzer, dashboards, custom-image, analysis-icu, memlock, rootless-docker]
 ---
-
 # OpenSearch Cluster
 
 Five-node cluster running OpenSearch 3.6 with mTLS security and performance monitoring.
-
----
 
 ## Architecture
 

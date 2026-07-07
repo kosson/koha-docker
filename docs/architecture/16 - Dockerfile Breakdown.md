@@ -2,19 +2,14 @@
 title: "Dockerfile Breakdown"
 tags: [dockerfile, ubuntu-24.04, layers, apt, koha-common, nodejs, yarn, cypress, perl-tools, apt-install-retry, uid-collision, crlf, image-size, build-time]
 ---
-
 # Dockerfile Breakdown
 
 Layer-by-layer analysis of the Koha container image.
-
----
 
 ## File
 
 Location: `/home/kosson/Documents/koha-docker/Dockerfile` (236 lines)
 Base image: `ubuntu:24.04` (Noble Numbat)
-
----
 
 ## Layer Analysis
 
@@ -325,8 +320,6 @@ CMD ["/bin/bash", "/kohadevbox/run.sh"]
 - **8081** — Staff (Apache)
 - CMD runs the entrypoint script
 
----
-
 ## Image Size Estimate
 
 | Category | Approximate Size |
@@ -337,8 +330,6 @@ CMD ["/bin/bash", "/kohadevbox/run.sh"]
 | Development tools | ~200 MB |
 | Git repos (misc4dev, etc.) | ~100 MB |
 | **Total** | **~1.2 GB** |
-
----
 
 ## Build Time
 

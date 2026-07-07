@@ -2,12 +2,9 @@
 title: "MariaDB & Database"
 tags: [mariadb, database, schema, koha_kohadev, sql-mode, backup, restore, data-volume, initialization, connection-troubleshooting]
 ---
-
 # MariaDB & Database
 
 MariaDB 10.11 runs the relational data store for the Koha instance.
-
----
 
 ## Container Setup
 

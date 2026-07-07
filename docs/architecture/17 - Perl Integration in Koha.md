@@ -2,12 +2,9 @@
 title: "Perl Integration in Koha"
 tags: [perl, cpan, perltidy, perlcritic, prove, dbi, dbd-mysql, moose, template, elasticsearch, cache-memcached, rabbitmq, stomp, git-bz, qa-tools, testing]
 ---
-
 # Perl Integration in Koha
 
 How Perl ties the Koha stack together — from runtime scripts to build tools.
-
----
 
 ## Overview
 
@@ -17,8 +14,6 @@ Koha is fundamentally a Perl application. The stack integrates Perl at multiple 
 2. **Development tooling** — Perl linters, formatters, test harnesses
 3. **Runtime scripts** — Instance creation, config, service management
 4. **Background jobs** — MARC import, indexing, notifications (via RabbitMQ)
-
----
 
 ## Perl in the Docker Image
 
@@ -65,8 +60,6 @@ cpanm --installdeps .
 
 This reads the `cpanfile` in the Koha source directory and installs any missing CPAN modules.
 
----
-
 ## Perl Runtime Scripts
 
 ### run.sh (Entrypoint)
@@ -101,8 +94,6 @@ cpanm --installdeps .
 | `insert_data.pl` | `/kohadevbox/misc4dev/insert_data.pl` | Demo data import |
 | `rebuild_index.pl` | `/usr/share/koha/misc/elasticsearch/rebuild_index.pl` | Index rebuild |
 | `koha-reload-starman` | `/kohadevbox/koha-reload-starman` | Hot reload utility |
-
----
 
 ## Perl Development Workflow
 
@@ -149,8 +140,6 @@ git bz create
 ```
 
 The `git-bz` tool is symlinked to `/usr/bin/git-bz` in the Dockerfile.
-
----
 
 ## How Perl Scripts Connect to the Stack
 
@@ -218,8 +207,6 @@ Koha uses STOMP protocol to talk to RabbitMQ:
 # etc.
 ```
 
----
-
 ## Perl Version
 
 Ubuntu 24.04 ships with Perl 5.38.x.
@@ -239,8 +226,6 @@ requires 'Elasticsearch';
 requires 'Cache::Memcached';
 # ... hundreds more
 ```
-
----
 
 ## Common Perl Issues in the Stack
 

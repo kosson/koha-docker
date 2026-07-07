@@ -2,13 +2,9 @@
 title: "Container Breakdown"
 tags: [containers, koha, mariadb, memcached, opensearch, dashboards, traefik, resources, volumes, capabilities]
 ---
-
 # Container Breakdown
 
 Detailed breakdown of every container in the stack.
-
----
-
 ## koha (Main Application Container)
 
 **Image**: `kosson/koha-ubuntu:latest` (custom-built from Dockerfile)
@@ -44,8 +40,6 @@ Detailed breakdown of every container in the stack.
 
 See [[06 - Environment Variables]].
 
----
-
 ## db (MariaDB)
 
 **Image**: `mariadb:10.11`
@@ -65,9 +59,6 @@ See [[06 - Environment Variables]].
 ### Network
 
 - `kohanet` only — not exposed to host
-
----
-
 ## memcached
 
 **Image**: `memcached` (default, latest)
@@ -81,9 +72,6 @@ See [[06 - Environment Variables]].
 ### Network
 
 - `kohanet` only
-
----
-
 ## OpenSearch Cluster (os01–os05)
 
 **Image**: `kosson/opensearch-icu:3.6.0` (custom build from `OpenSearch-3.6/assets/opensearch/Dockerfile`)
@@ -125,8 +113,6 @@ Interval: 5s, Timeout: 10s, Retries: 30
 - `bootstrap.memory_lock=true` (locks heap in RAM, no swap)
 - `OPENSEARCH_JAVA_OPTS` (from `.env`)
 
----
-
 ## dashboards (OpenSearch Dashboards)
 
 **Image**: `opensearchproject/opensearch-dashboards:3.6.0`
@@ -146,8 +132,6 @@ Interval: 5s, Timeout: 10s, Retries: 30
 ### Dependencies
 
 - `os01` must be `service_healthy` before starting
-
----
 
 ## traefik (Reverse Proxy)
 

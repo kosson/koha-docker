@@ -2,12 +2,9 @@
 title: "Networking"
 tags: [networking, docker-networks, kohanet, knonikl, opensearch-36_osearch, frontend, osearch, dns, traefik-routing, nip.io, ipv6, host-ports]
 ---
-
 # Networking
 
 Five Docker networks interconnect the containers.
-
----
 
 ## Network List
 

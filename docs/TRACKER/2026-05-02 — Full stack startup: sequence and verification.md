@@ -1,5 +1,5 @@
 ---
-title: Full stack startup: sequence and verification
+title: "Full stack startup: sequence and verification"
 date: 2026.05.02
 tags:
  - startup

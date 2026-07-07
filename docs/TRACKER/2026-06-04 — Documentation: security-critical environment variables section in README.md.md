@@ -1,5 +1,5 @@
 ---
-title: Documentation: security-critical environment variables section in README.md
+title: "Documentation: security-critical environment variables section in README.md"
 date: 2026.06.04
 tags:
  - variables

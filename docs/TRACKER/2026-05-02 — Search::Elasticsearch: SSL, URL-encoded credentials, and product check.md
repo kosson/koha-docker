@@ -1,5 +1,5 @@
 ---
-title: Search::Elasticsearch: SSL, URL-encoded credentials, and product check
+title: "Search::Elasticsearch: SSL, URL-encoded credentials, and product check"
 date: 2026.05.02
 tags:
  - ElasticSearch

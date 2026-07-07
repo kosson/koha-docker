@@ -1,5 +1,5 @@
 ---
-title: Clarification: role of `defaults.env` vs `env/.env`
+title: "Clarification: role of `defaults.env` vs `env/.env`"
 date: 2026.04.22
 tags:
  - dotenv

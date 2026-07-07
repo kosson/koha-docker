@@ -1,5 +1,5 @@
 ---
-title: Fix container crash: rebuild_elasticsearch.pl non-zero exit kills startup
+title: "Fix container crash: rebuild_elasticsearch.pl non-zero exit kills startup"
 date: 2026-06-04
 tags:
  - container

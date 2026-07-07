@@ -2,7 +2,6 @@
 title: "Operations & Maintenance"
 tags: [operations, maintenance, start, stop, restart, reset, logs, image-management, container-management, health-checks, disk-management, configuration-changes]
 ---
-
 # Operations & Maintenance
 
 Daily operations for the Koha Docker stack.

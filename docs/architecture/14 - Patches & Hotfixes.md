@@ -2,20 +2,15 @@
 title: "Patches & Hotfixes"
 tags: [patches, hotfixes, git-bz, sql-mode, only-full-group-by, apply-patches.sh, patch-management, koha-patches, auth-tag-structure]
 ---
-
 # Patches & Hotfixes
 
 How patches are managed in the Koha source tree.
-
----
 
 ## Patch Directory
 
 Location: `~/Documents/koha-docker/patches/`
 
 Contains `.patch` files applied to the Koha source tree.
-
----
 
 ## Active Patches
 
@@ -39,8 +34,6 @@ Contains `.patch` files applied to the Koha source tree.
 git -C ~/Documents/koha status --short
 # Look for: M koha/admin/auth_tag_structure.pl
 ```
-
----
 
 ## Patch Management Script
 
@@ -133,8 +126,6 @@ cd ~/Documents/koha-docker
 ./apply-patches.sh
 ```
 
----
-
 ## Patch Naming Convention
 
 Format: `NNNN-short-description.patch`
@@ -144,8 +135,6 @@ Format: `NNNN-short-description.patch`
 - Example: `0001-auth-tag-structure-only-full-group-by.patch`
 
 Patches are applied in filename order. If patches have dependencies, order matters.
-
----
 
 ## Troubleshooting
 
