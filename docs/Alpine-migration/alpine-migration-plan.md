@@ -1,12 +1,15 @@
 # Koha Ubuntu to Alpine Migration Plan
 
 ## Goal
+
 Create an Alpine-based Koha container that preserves current developer workflow and startup behavior from `files/run.sh`, while replacing Ubuntu/Debian package assumptions.
 
 ## Current-State Findings
 
 ### 1) This repository currently depends on Debian packaging semantics
+
 From `Dockerfile` and `files/run.sh`:
+
 - Uses `apt`, `apt-get`, Debian repos, and `koha-common` Debian package install.
 - Uses Debian/Ubuntu service control (`service ...`, `/etc/init.d/...`, `a2enmod`, `a2ensite`).
 - Relies on koha-common-provided commands:
@@ -24,7 +27,9 @@ From `Dockerfile` and `files/run.sh`:
   - `/var/lib/koha`, `/var/log/koha`, `/var/run/koha`, `/var/cache/koha`
 
 ### 2) Koha upstream keeps `koha-common` logic in `debian/`
+
 From `https://github.com/Koha-Community/Koha/tree/main/debian`:
+
 - Package definition: `debian/control.in` (`koha-common`, `koha-core`, `koha-full`).
 - Runtime lifecycle scripts: `debian/koha-common.postinst`, `debian/koha-common.init`, `debian/koha-common.service`.
 - Core commands: `debian/scripts/koha-create`, `koha-shell`, `koha-enable`, `koha-plack`, `koha-create-dirs`, `koha-list`, etc.
@@ -34,6 +39,7 @@ From `https://github.com/Koha-Community/Koha/tree/main/debian`:
 Conclusion: the key to Alpine is not "installing `.deb` on Alpine". The key is **porting/adapting the koha-common runtime layer** (scripts + paths + process control).
 
 ### 3) Service decoupling is a valid next step, but not for every service at once
+
 The current repository already treats some infrastructure as separate services in compose (`db`, `memcached`, and the OpenSearch profile). That direction should continue, but the services should be split by coupling level:
 
 - **Good first external-service candidate:** RabbitMQ. Koha already talks to it over the network using STOMP settings, so it can become a sibling container with minimal change if the broker host/port/user/pass values are made explicit.

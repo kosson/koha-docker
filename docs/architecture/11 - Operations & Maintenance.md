@@ -7,8 +7,6 @@ tags: [operations, maintenance, start, stop, restart, reset, logs, image-managem
 
 Daily operations for the Koha Docker stack.
 
----
-
 ## Startup
 
 ### First-Time Start (with build)
@@ -181,6 +179,8 @@ docker exec koha-docker-koha-1 tail -f /var/log/apache2/error.log
 
 # Koha verbose log
 docker exec koha-docker-koha-1 tail -f /var/log/koha/kohadev/koha-httpd-errorlog
+Thank you. What other testing would you like to see done? I see a test_stack_sh_static.sh in tests, and the relevant documentation in the README.
+
 
 # OpenSearch node logs
 docker exec os01 tail -f /usr/share/opensearch/logs/koha-cluster.log
@@ -277,6 +277,7 @@ docker volume inspect koha-db-data
 ```
 
 For env changes that affect OpenSearch (password changes), use:
+
 ```bash
 ./stack.sh stop
 ./stack.sh start --build
@@ -300,6 +301,7 @@ docker restart os05
 ```
 
 Or full restart for significant config changes:
+
 ```bash
 ./stack.sh stop
 ./stack.sh start --no-fresh-db
