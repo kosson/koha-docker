@@ -1,7 +1,7 @@
 server.port: 5601
 server.host: "0.0.0.0"
 opensearch.username: "dashboards"
-opensearch.password: "test@Cici24#ANA"
+opensearch.password: "%%OPENSEARCH_INITIAL_ADMIN_PASSWORD%%"
 opensearchDashboards.index: ".kibana"
 # multitenancy removed in OpenSearch / Dashboards 3.0 — these settings no longer exist
 # opensearch_security.multitenancy.enabled: true
