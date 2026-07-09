@@ -355,7 +355,9 @@ printf 'stats\r\nquit\r\n' | nc -w2 localhost 11211 | head -5
 # Traefik ping
 wget -q -O- http://127.0.0.1:8082/ping
 ```
-
+WARN[0000] a network with name opensearch-36_osearch exists but was not created by compose.
+Set `external: true` to use an existing network 
+network opensearch-36_osearch was found but has incorrect label com.docker.compose.network set to "" (expected: "osearch")
 ### Full Diagnostic
 
 ```bash
