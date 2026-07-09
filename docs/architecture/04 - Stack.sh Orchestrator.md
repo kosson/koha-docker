@@ -1,6 +1,6 @@
 ---
 title: "Stack.sh Orchestrator"
-tags: [stack.sh, startup, commands, build, deploy, network-creation, log-scraping, credential-sync]
+tags: [stack.sh, startup, commands, build, deploy, network-creation, log-scraping, credential-sync, clone-bootstrap]
 ---
 # Stack.sh Orchestrator
 
@@ -38,51 +38,58 @@ Commands:
 1. check_prereqs()
    ├── docker in PATH?
    ├── docker compose plugin?
+   ├── git in PATH?
    └── env/.env exists?
 
-2. ensure_frontend_network()
+2. ensure_koha_source()
+   ├── Read SYNC_REPO + KOHA_GIT_* vars from env/.env
+   ├── If SYNC_REPO already has .git: no-op
+   ├── Mode=tag: validate tag exists, then shallow clone pinned to tag
+   └── Mode=branch: shallow clone selected branch (e.g., main)
+
+3. ensure_frontend_network()
    └── docker network create frontend (if missing)
 
-3. ensure_extra_networks()
+4. ensure_extra_networks()
    └── docker network create knonikl, opensearch-36_osearch (if missing)
 
-4. ensure_opensearch_certs()
+5. ensure_opensearch_certs()
    ├── Check config file exists
    ├── Check all 18 cert files exist and are files (not dirs)
    ├── Regenerate if any missing (run opensearch_local_certificates_creator.sh)
    └── Verify all certs present after generation
 
-5. sync_koha_opensearch_credentials()
+6. sync_koha_opensearch_credentials()
    ├── Read OS_ADMIN_PASS from OpenSearch-3.6/.env (source of truth)
    ├── Use Python to update ELASTIC_OPTIONS userinfo in env/.env
    ├── Export synced values
 
-6. ensure_opensearch_auth()
+7. ensure_opensearch_auth()
    ├── curl -u admin:password https://localhost:9200/_cluster/health
    ├── If 401: run initial_api_calls.sh + force-recreate os01 + wait for green
    └── If other: warn and continue
 
-7. start_opensearch()
+8. start_opensearch()
    ├── Check if kosson/opensearch-icu:3.6.0 exists locally
    ├── If missing: build_opensearch() (docker compose build os01)
    ├── docker compose up -d os01 os02 os03 os04 os05
    └── wait_opensearch_green() (poll _cluster/health, up to 6 minutes)
 
-8. start_support_services()
+9. start_support_services()
    ├── koha_compose up -d db memcached
    └── wait_db_ready() (poll mysql -uroot -p... 'SELECT 1;', up to 60s)
 
-9. reset_database()
+10. reset_database()
    ├── DROP DATABASE IF EXISTS koha_kohadev
    ├── CREATE DATABASE koha_kohadev (utf8mb4, utf8mb4_unicode_ci)
    ├── GRANT ALL ON koha_kohadev.* TO koha_kohadev@'%'
    └── FLUSH PRIVILEGES
 
-10. start_koha()
+11. start_koha()
     ├── export LOAD_DEMO_DATA
     └── koha_compose up -d --force-recreate koha
 
-11. follow_logs() (default behavior)
+12. follow_logs() (default behavior)
     └── docker compose logs -f koha
         └── On milestone "koha-testing-docker has started up":
             print summary box with URLs and credentials
@@ -131,6 +138,24 @@ PY
 ```
 
 This replaces the admin password in the XML-style ELASTIC_OPTIONS with the current password from `OpenSearch-3.6/.env`.
+
+### Koha Source Bootstrap
+
+`ensure_koha_source()` is called by `start`, `build`, `restart`, and `restore`.
+
+```bash
+# deterministic release test
+KOHA_GIT_CLONE_MODE=tag
+KOHA_GIT_TAG=25.11.05-1
+
+# bleeding edge (still shallow)
+KOHA_GIT_CLONE_MODE=branch
+KOHA_GIT_BRANCH=main
+
+# shared
+KOHA_GIT_DEPTH=1
+SYNC_REPO=/absolute/path/to/koha-docker/koha
+```
 
 ## Color Output
 

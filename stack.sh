@@ -24,6 +24,7 @@ TRAEFIK_DIR="${SCRIPT_DIR}/traefik"
 KOHA_COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 KOHA_ENV_FILE="${SCRIPT_DIR}/env/.env"
 KOHA_PROJECT_DIR="${SCRIPT_DIR}"
+KOHA_DEFAULT_REPO_URL="https://git.koha-community.org/Koha-community/Koha.git"
 
 # ---------------------------------------------------------------------------
 # Colour helpers
@@ -72,6 +73,12 @@ OS_ADMIN_PASS="$(_env_val "${OPENSEARCH_DIR}/.env" OPENSEARCH_INITIAL_ADMIN_PASS
 KOHA_ELASTIC_OPTIONS="$(_env_val "${KOHA_ENV_FILE}" ELASTIC_OPTIONS "")"
 DASHBOARDS_DOMAIN="$(_env_val "${OPENSEARCH_DIR}/.env" DASHBOARDS_DOMAIN "dashboards.localhost")"
 TLS_CERTRESOLVER="$(_env_val "${KOHA_ENV_FILE}" TLS_CERTRESOLVER "")"
+SYNC_REPO="$(_env_val "${KOHA_ENV_FILE}" SYNC_REPO "${SCRIPT_DIR}/koha")"
+KOHA_GIT_URL="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_URL "${KOHA_DEFAULT_REPO_URL}")"
+KOHA_GIT_CLONE_MODE="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_CLONE_MODE tag)"
+KOHA_GIT_TAG="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_TAG "")"
+KOHA_GIT_BRANCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_BRANCH main)"
+KOHA_GIT_DEPTH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_DEPTH 1)"
 
 DB_NAME="koha_${KOHA_INSTANCE}"
 DB_USER="koha_${KOHA_INSTANCE}"
@@ -91,6 +98,12 @@ reload_runtime_config() {
   KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH "${KOHA_ELASTICSEARCH}")"
   KOHA_ELASTIC_OPTIONS="$(_env_val "${KOHA_ENV_FILE}" ELASTIC_OPTIONS "${KOHA_ELASTIC_OPTIONS}")"
   LOAD_DEMO_DATA="$(_env_val "${KOHA_ENV_FILE}" LOAD_DEMO_DATA "${LOAD_DEMO_DATA}")"
+  SYNC_REPO="$(_env_val "${KOHA_ENV_FILE}" SYNC_REPO "${SYNC_REPO}")"
+  KOHA_GIT_URL="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_URL "${KOHA_GIT_URL}")"
+  KOHA_GIT_CLONE_MODE="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_CLONE_MODE "${KOHA_GIT_CLONE_MODE}")"
+  KOHA_GIT_TAG="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_TAG "${KOHA_GIT_TAG}")"
+  KOHA_GIT_BRANCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_BRANCH "${KOHA_GIT_BRANCH}")"
+  KOHA_GIT_DEPTH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_DEPTH "${KOHA_GIT_DEPTH}")"
   TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT "${TRAEFIK_HTTP_PORT}")"
   TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT "${TRAEFIK_HTTPS_PORT}")"
   TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT "${TRAEFIK_DASHBOARD_PORT}")"
@@ -134,6 +147,7 @@ traefik_compose() {
 # ---------------------------------------------------------------------------
 check_prereqs() {
   log "Checking prerequisites..."
+  command -v git      >/dev/null 2>&1 || die "git not found in PATH"
   command -v docker   >/dev/null 2>&1 || die "docker not found in PATH"
   docker compose version >/dev/null 2>&1 || die "Docker Compose plugin not found"
   [[ -f "${KOHA_ENV_FILE}" ]] || die "env/.env not found — copy and configure it first"
@@ -142,6 +156,52 @@ check_prereqs() {
   [[ -f "${TRAEFIK_DIR}/docker-compose.yaml" ]] \
     || die "traefik/docker-compose.yaml not found"
   ok "Prerequisites OK"
+}
+
+ensure_koha_source() {
+  hdr "Ensuring Koha source tree"
+
+  local clone_mode repo_dir repo_parent
+  clone_mode="$(echo "${KOHA_GIT_CLONE_MODE}" | tr '[:upper:]' '[:lower:]')"
+  repo_dir="${SYNC_REPO}"
+
+  [[ -n "${repo_dir}" ]] || die "SYNC_REPO is empty in env/.env"
+  repo_parent="$(dirname "${repo_dir}")"
+  mkdir -p "${repo_parent}"
+
+  if [[ -d "${repo_dir}/.git" ]]; then
+    ok "Koha source already present at ${repo_dir}"
+    return 0
+  fi
+
+  if [[ -e "${repo_dir}" ]]; then
+    die "SYNC_REPO path exists but is not a git repo: ${repo_dir}"
+  fi
+
+  if [[ ! "${KOHA_GIT_DEPTH}" =~ ^[1-9][0-9]*$ ]]; then
+    die "KOHA_GIT_DEPTH must be a positive integer (current: '${KOHA_GIT_DEPTH}')"
+  fi
+
+  case "${clone_mode}" in
+    tag)
+      [[ -n "${KOHA_GIT_TAG}" ]] || die "KOHA_GIT_TAG is required when KOHA_GIT_CLONE_MODE=tag"
+      if ! git ls-remote --tags --refs "${KOHA_GIT_URL}" "refs/tags/${KOHA_GIT_TAG}" | grep -q .; then
+        die "Koha tag '${KOHA_GIT_TAG}' not found at ${KOHA_GIT_URL}"
+      fi
+      log "Cloning Koha tag '${KOHA_GIT_TAG}' into '${repo_dir}' (depth=${KOHA_GIT_DEPTH})..."
+      git clone --branch "${KOHA_GIT_TAG}" --single-branch --depth "${KOHA_GIT_DEPTH}" "${KOHA_GIT_URL}" "${repo_dir}"
+      ;;
+    branch)
+      [[ -n "${KOHA_GIT_BRANCH}" ]] || die "KOHA_GIT_BRANCH is required when KOHA_GIT_CLONE_MODE=branch"
+      log "Cloning Koha branch '${KOHA_GIT_BRANCH}' into '${repo_dir}' (depth=${KOHA_GIT_DEPTH})..."
+      git clone --branch "${KOHA_GIT_BRANCH}" --single-branch --depth "${KOHA_GIT_DEPTH}" "${KOHA_GIT_URL}" "${repo_dir}"
+      ;;
+    *)
+      die "Invalid KOHA_GIT_CLONE_MODE='${KOHA_GIT_CLONE_MODE}'. Use 'tag' or 'branch'."
+      ;;
+  esac
+
+  ok "Koha source prepared at ${repo_dir}"
 }
 
 # ---------------------------------------------------------------------------
@@ -512,6 +572,7 @@ restore_backup_bundle() {
   cp "${stage_dir}/config/opensearch.env" "${OPENSEARCH_DIR}/.env"
 
   reload_runtime_config
+  ensure_koha_source
 
   ok "Configuration files restored."
 
@@ -698,6 +759,14 @@ ${BOLD}Options for 'start' and 'build':${RESET}
   --with-demo-data      Load sample MARC records, items, and patron data (default)
   --no-demo-data        Start with an empty catalogue — superlibrarian account only
 
+${BOLD}Koha source bootstrap (env/.env):${RESET}
+  SYNC_REPO             Host path for Koha source (auto-cloned if missing)
+  KOHA_GIT_CLONE_MODE   tag | branch
+  KOHA_GIT_TAG          Required when clone mode is 'tag'
+  KOHA_GIT_BRANCH       Required when clone mode is 'branch' (e.g. main)
+  KOHA_GIT_DEPTH        Shallow clone depth (positive integer)
+  KOHA_GIT_URL          Optional override for forks/mirrors
+
 ${BOLD}Examples:${RESET}
   $(basename "$0") start                    # Fresh DB + demo data, follow logs
   $(basename "$0") start --no-demo-data     # Fresh DB, clean catalogue (no sample records)
@@ -789,6 +858,7 @@ case "${COMMAND}" in
 
   start)
     check_prereqs
+    ensure_koha_source
     [[ "${BUILD_OPENSEARCH}" == true ]] && build_opensearch
     [[ "${BUILD_KOHA}"       == true ]] && build_koha
     ensure_opensearch_certs
@@ -851,6 +921,7 @@ case "${COMMAND}" in
 
   restart)
     check_prereqs
+    ensure_koha_source
     hdr "Quick restart (OpenSearch stays up)"
     warn "Assumes OpenSearch cluster is already running and green."
     wait_db_ready
@@ -873,6 +944,7 @@ case "${COMMAND}" in
       # No specific target → build everything
       BUILD_OPENSEARCH=true; BUILD_KOHA=true
     fi
+    [[ "${BUILD_KOHA}" == true ]] && ensure_koha_source
     [[ "${BUILD_OPENSEARCH}" == true ]] && build_opensearch
     [[ "${BUILD_KOHA}"       == true ]] && build_koha
     ok "Build complete."

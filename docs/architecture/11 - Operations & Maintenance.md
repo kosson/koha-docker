@@ -15,17 +15,33 @@ cd ~/Documents/koha-docker
 ./stack.sh start --build
 ```
 
+Before the first run, set clone mode in `env/.env`:
+
+```bash
+# deterministic release testing
+KOHA_GIT_CLONE_MODE=tag
+KOHA_GIT_TAG=25.11.05-1
+KOHA_GIT_DEPTH=1
+
+# bleeding edge alternative
+# KOHA_GIT_CLONE_MODE=branch
+# KOHA_GIT_BRANCH=main
+```
+
+`stack.sh` auto-clones Koha into `SYNC_REPO` when that path does not exist.
+
 This will:
 1. Check prerequisites (docker, compose, env files)
-2. Create Docker networks if missing
-3. Generate TLS certificates if missing
-4. Sync credentials between env files
-5. Build OpenSearch image (kosson/opensearch-icu)
-6. Start 5-node OpenSearch cluster (wait for green)
-7. Start MariaDB + Memcached (wait for ready)
-8. Reset database (drop/create/grant)
-9. Start Koha container
-10. Tail logs, print URL summary on startup
+2. Auto-clone Koha source if `SYNC_REPO` is missing (tag or branch mode)
+3. Create Docker networks if missing
+4. Generate TLS certificates if missing
+5. Sync credentials between env files
+6. Build OpenSearch image (kosson/opensearch-icu)
+7. Start 5-node OpenSearch cluster (wait for green)
+8. Start MariaDB + Memcached (wait for ready)
+9. Reset database (drop/create/grant)
+10. Start Koha container
+11. Tail logs, print URL summary on startup
 
 **Time to first run**: 5-15 minutes (depends on OpenSearch build + startup)
 

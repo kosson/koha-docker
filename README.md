@@ -60,22 +60,28 @@ sysctl net.ipv4.ip_unprivileged_port_start
 
 Minimum steps to get a functional Koha instance after cloning/downloading this repository.
 
-1. Clone Koha source into `koha-docker/koha` (host user UID 1000):
+1. Configure deterministic Koha source checkout in `env/.env`:
 
 ```bash
 cd koha-docker
-git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
-```
-
-At this moment, version Koha 26.06.00 will be fetched.
-
-2. Create env file and set required values:
-
-```bash
 cp env/template.env env/.env
 ```
 
-Edit `env/.env` at minimum:
+Set these variables in `env/.env`:
+
+- `SYNC_REPO` -> absolute host path where Koha source will be created (for this repo: `.../koha-docker/koha`)
+- `KOHA_GIT_CLONE_MODE=tag`
+- `KOHA_GIT_TAG=25.11.05-1`
+- `KOHA_GIT_DEPTH=1`
+
+`./stack.sh` will auto-clone Koha into `SYNC_REPO` if the directory does not exist yet.
+
+For bleeding-edge shallow clone, switch to:
+
+- `KOHA_GIT_CLONE_MODE=branch`
+- `KOHA_GIT_BRANCH=main`
+
+2. Edit `env/.env` at minimum:
 
 - `SYNC_REPO` -> absolute path to your local `koha-docker/koha`
 - `KOHA_DOMAIN` -> recommended `.127.0.0.1.nip.io`
@@ -87,7 +93,6 @@ Edit `env/.env` at minimum:
 4. Raise OpenSearch from zero (recommended deterministic path):
 
 Read OpenSearch-3.6/README.md file. Create `.env` or rename `template.env`.
-
 ```bash
 docker pull opensearchproject/opensearch:3.6.0
 cd OpenSearch-3.6
@@ -153,23 +158,36 @@ First, go to the [Prerequisites](#prerequisites) section and read it carefully. 
 
 Concerning Docker, it musn't be Docker Desktop. If you get any errors concerning the wrong socket, check the context docker is using to run with the following command `docker context ls`. If need, choose default with `docker context use default`.
 
-### 2. Clone the Koha source tree
+### 2. Configure Koha clone mode in `env/.env`
 
-Clone the Koha source into `koha-docker/koha/` **as the host user (UID 1000)**:
+`./stack.sh start`, `./stack.sh build`, `./stack.sh restart`, and `./stack.sh restore` now call an internal `ensure_koha_source()` step.
+If `SYNC_REPO` is missing, it is cloned automatically.
+
+Deterministic release testing (recommended):
 
 ```bash
-cd koha-docker
-git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
+KOHA_GIT_CLONE_MODE=tag
+KOHA_GIT_TAG=25.11.05-1
+KOHA_GIT_DEPTH=1
 ```
 
-The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match. The versions that this solution works with are Koha 25 and 26.
+Bleeding-edge shallow clone:
+
+```bash
+KOHA_GIT_CLONE_MODE=branch
+KOHA_GIT_BRANCH=main
+KOHA_GIT_DEPTH=1
+```
+
+The directory is bind-mounted into the container at `/kohadevbox/koha`. The container user `kohadev-koha` runs as UID 1000, so file ownership must match.
 
 ### Patches
 
-Because the Koha source tree is refreshed from upstream with:
+Because the Koha source tree can be refreshed from upstream with the configured clone mode:
 
 ```bash
-git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
+rm -rf "$SYNC_REPO"
+./stack.sh start
 ```
 
 any local hotfixes are lost unless they are stored as patch files and re-applied.

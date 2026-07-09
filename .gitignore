@@ -1,5 +1,5 @@
 # Koha ILS source tree — cloned separately by the developer (see README)
-# Clone with: git clone --depth=1 https://gitlab.com/koha-community/Koha.git koha
+# Auto-clone with stack.sh (KOHA_GIT_CLONE_MODE/KOHA_GIT_TAG in env/.env)
 koha/
 
 # Runtime secrets and local overrides
@@ -22,3 +22,6 @@ OpenSearch-3.6/.env
 *.swp
 *.swo
 *~
+
+# Do not push backups
+backups/

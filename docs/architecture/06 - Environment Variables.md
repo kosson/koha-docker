@@ -28,6 +28,11 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 | `OS_SEARCH_SNAPSHOT_SIZE` | Search cache size | `5%` | os05 node only |
 | `LOAD_DEMO_DATA` | Load MARC sample data | `yes` | 436 records, ~400KB |
 | `SYNC_REPO` | Host Koha source path | `/home/kosson/Documents/koha` | Bind mount target |
+| `KOHA_GIT_CLONE_MODE` | Auto-clone strategy for missing `SYNC_REPO` | `tag` | `tag` (deterministic) or `branch` (bleeding edge) |
+| `KOHA_GIT_TAG` | Exact Koha tag when clone mode is `tag` | `25.11.05-1` | Example: `25.11.05-1` |
+| `KOHA_GIT_BRANCH` | Branch when clone mode is `branch` | `main` | Usually `main` for bleeding edge |
+| `KOHA_GIT_DEPTH` | Shallow clone depth | `1` | Positive integer |
+| `KOHA_GIT_URL` | Koha upstream URL | `https://git.koha-community.org/Koha-community/Koha.git` | Override for forks/mirrors |
 | `OPENSEARCH_VERSION` | OS version tag | `3.6.0` | Used in image name |
 | `KOHA_VERSION` | Koha version | `26.06.00.000` | — |
 | `DB_IMAGE` | MariaDB image | `mariadb:10.11` | — |
