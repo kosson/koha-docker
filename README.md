@@ -71,7 +71,7 @@ Set these variables in `env/.env`:
 
 - `SYNC_REPO` -> absolute host path where Koha source will be created (for this repo: `.../koha-docker/koha`)
 - `KOHA_GIT_CLONE_MODE=tag`
-- `KOHA_GIT_TAG=25.11.05-1`
+- `KOHA_GIT_TAG=v25.11.05-1`
 - `KOHA_GIT_DEPTH=1`
 
 `./stack.sh` will auto-clone Koha into `SYNC_REPO` if the directory does not exist yet.
@@ -167,7 +167,7 @@ Deterministic release testing (recommended):
 
 ```bash
 KOHA_GIT_CLONE_MODE=tag
-KOHA_GIT_TAG=25.11.05-1
+KOHA_GIT_TAG=v25.11.05-1
 KOHA_GIT_DEPTH=1
 ```
 

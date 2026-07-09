@@ -149,6 +149,7 @@ check_prereqs() {
   log "Checking prerequisites..."
   command -v git      >/dev/null 2>&1 || die "git not found in PATH"
   command -v docker   >/dev/null 2>&1 || die "docker not found in PATH"
+  docker info >/dev/null 2>&1 || die "Docker daemon is not running. Start it first (for example: sudo systemctl start docker)."
   docker compose version >/dev/null 2>&1 || die "Docker Compose plugin not found"
   [[ -f "${KOHA_ENV_FILE}" ]] || die "env/.env not found — copy and configure it first"
   [[ -f "${OPENSEARCH_DIR}/docker-compose.yml" ]] \
@@ -161,7 +162,7 @@ check_prereqs() {
 ensure_koha_source() {
   hdr "Ensuring Koha source tree"
 
-  local clone_mode repo_dir repo_parent
+  local clone_mode repo_dir repo_parent resolved_tag
   clone_mode="$(echo "${KOHA_GIT_CLONE_MODE}" | tr '[:upper:]' '[:lower:]')"
   repo_dir="${SYNC_REPO}"
 
@@ -185,11 +186,17 @@ ensure_koha_source() {
   case "${clone_mode}" in
     tag)
       [[ -n "${KOHA_GIT_TAG}" ]] || die "KOHA_GIT_TAG is required when KOHA_GIT_CLONE_MODE=tag"
-      if ! git ls-remote --tags --refs "${KOHA_GIT_URL}" "refs/tags/${KOHA_GIT_TAG}" | grep -q .; then
-        die "Koha tag '${KOHA_GIT_TAG}' not found at ${KOHA_GIT_URL}"
+      resolved_tag="${KOHA_GIT_TAG}"
+      if ! git ls-remote --tags --refs "${KOHA_GIT_URL}" "refs/tags/${resolved_tag}" | grep -q .; then
+        if [[ "${resolved_tag}" != v* ]] && git ls-remote --tags --refs "${KOHA_GIT_URL}" "refs/tags/v${resolved_tag}" | grep -q .; then
+          resolved_tag="v${resolved_tag}"
+          warn "KOHA_GIT_TAG='${KOHA_GIT_TAG}' not found; using '${resolved_tag}' (v-prefixed upstream tag)."
+        else
+          die "Koha tag '${KOHA_GIT_TAG}' not found at ${KOHA_GIT_URL}"
+        fi
       fi
-      log "Cloning Koha tag '${KOHA_GIT_TAG}' into '${repo_dir}' (depth=${KOHA_GIT_DEPTH})..."
-      git clone --branch "${KOHA_GIT_TAG}" --single-branch --depth "${KOHA_GIT_DEPTH}" "${KOHA_GIT_URL}" "${repo_dir}"
+      log "Cloning Koha tag '${resolved_tag}' into '${repo_dir}' (depth=${KOHA_GIT_DEPTH})..."
+      git clone --branch "${resolved_tag}" --single-branch --depth "${KOHA_GIT_DEPTH}" "${KOHA_GIT_URL}" "${repo_dir}"
       ;;
     branch)
       [[ -n "${KOHA_GIT_BRANCH}" ]] || die "KOHA_GIT_BRANCH is required when KOHA_GIT_CLONE_MODE=branch"

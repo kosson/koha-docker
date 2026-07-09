@@ -293,7 +293,10 @@ services:
 #   os05data:
 networks:
   osearch:
+    name: opensearch-36_osearch
+    external: true
   knonikl:
-    name: knonikl     # ← added: pins the Docker network name regardless of project prefix
+    name: knonikl
+    external: true
   frontend:
     external: true
