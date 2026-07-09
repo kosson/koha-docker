@@ -111,23 +111,23 @@ Run the script `./apply-patches.sh`. This is a needed to fix some issues with th
 First move to the project root `cd ..`. You are in OpenSearch-3.6 right now after you finished testing the cluster. Execute:
 
 ```bash
-./stack.sh start --build
+./stack.sh start
 ```
 
-Sometimes it errors out because of some stuborn packages. in this case, simply run `./stack.sh start`. It will fly straight to the target. One thing to point out. The sample data has an issue documented in section `#### Non-fatal warnings explained` of the `docs/TRACKER.md` file. See `PCDATA invalid Char value 31`. 
+If you would like to build from the ground up the Koha container run `./stack.sh start --build`. Sometimes it errors out because of some stuborn packages. In this case, simply stay with `./stack.sh start`. It will fly straight to the target. One thing to point out. The sample data has an issue documented in section `#### Non-fatal warnings explained` of the `docs/2026-05-02 — Traefik reverse-proxy integration (hostname routing, portability).md` file. Search for `PCDATA invalid Char value 31`. It appears also in the excerpt of logs captured at frst runtime.
 
 7. Open Koha in browser:
 
 - OPAC: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8080`
 - Staff: `http://kohadev.127.0.0.1.nip.io:8000/` or `http://localhost:8081`
 
-If you stop and resume later avoid wiping the database:
+If you stop and resume later avoid wiping the database by running the command with `--no-fresh-db` option:
 
 ```bash
 ./stack.sh start --no-fresh-db
 ```
 
-How to stop after finishing working? Simple: `./stack.sh stop`. Restart? there you go `./stack.sh start --no-fresh-db`. See down below the `./stack.sh` script options.
+How to stop after finishing working? Simple: `./stack.sh stop`. Restart? There you go: `./stack.sh start --no-fresh-db`. For a complete list of command options, see down below the `./stack.sh` script running explanations.
 
 ## Security-critical environment variables
 
@@ -198,7 +198,7 @@ Current patch inventory:
 |---|---|---|---|
 | `patches/0001-auth-tag-structure-only-full-group-by.patch` | `koha/admin/auth_tag_structure.pl` | Fix authority-type editor query for strict SQL mode (`ONLY_FULL_GROUP_BY`) by grouping `authtypetext` too | Keep applying until upstream Koha includes equivalent fix |
 
-Apply all patches after cloning Koha (run from the `koha-docker/` root):
+Ypu could take the git command path and apply all patches after cloning Koha (run from the `koha-docker/` root) using `git`:
 
 ```bash
 git -C koha apply --check "$PWD"/patches/*.patch
@@ -206,8 +206,9 @@ git -C koha apply "$PWD"/patches/*.patch
 ```
 
 `--check` is a dry-run validation only. It never modifies files. The second command (without `--check`) is the one that applies patches.
+This approach is useful at times when you do not want to apply all the patches in order to reproduce some behaviours. If not, run the `apply-patches.sh` script.
 
-Recommended single command:
+Recommended path is to run a single command:
 
 ```bash
 ./apply-patches.sh
@@ -340,6 +341,8 @@ There are two methods. First, the recommended one is to build the images local. 
 ```bash
 ./stack.sh start --build
 ```
+
+Unfortunatelly this might prove buffy when it arrives to Koha container building. There are some issues with the packages for the Ubuntu version used to build the project. It is related with some latencies in the packages repos. If these happend, run `./stack.sh start` immediately. You should be good. 
 
 The second method is to run:
 
