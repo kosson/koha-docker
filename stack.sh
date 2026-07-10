@@ -79,6 +79,9 @@ KOHA_GIT_CLONE_MODE="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_CLONE_MODE tag)"
 KOHA_GIT_TAG="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_TAG "")"
 KOHA_GIT_BRANCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_BRANCH main)"
 KOHA_GIT_DEPTH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_DEPTH 1)"
+KOHA_DESIRED_LANGUAGES="$(_env_val "${KOHA_ENV_FILE}" KOHA_DESIRED_LANGUAGES en)"
+KOHA_OPAC_LANGUAGES_DISPLAY="$(_env_val "${KOHA_ENV_FILE}" KOHA_OPAC_LANGUAGES_DISPLAY 1)"
+KOHA_TRANSLATIONS_REINSTALL="$(_env_val "${KOHA_ENV_FILE}" KOHA_TRANSLATIONS_REINSTALL no)"
 
 DB_NAME="koha_${KOHA_INSTANCE}"
 DB_USER="koha_${KOHA_INSTANCE}"
@@ -104,6 +107,9 @@ reload_runtime_config() {
   KOHA_GIT_TAG="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_TAG "${KOHA_GIT_TAG}")"
   KOHA_GIT_BRANCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_BRANCH "${KOHA_GIT_BRANCH}")"
   KOHA_GIT_DEPTH="$(_env_val "${KOHA_ENV_FILE}" KOHA_GIT_DEPTH "${KOHA_GIT_DEPTH}")"
+  KOHA_DESIRED_LANGUAGES="$(_env_val "${KOHA_ENV_FILE}" KOHA_DESIRED_LANGUAGES "${KOHA_DESIRED_LANGUAGES}")"
+  KOHA_OPAC_LANGUAGES_DISPLAY="$(_env_val "${KOHA_ENV_FILE}" KOHA_OPAC_LANGUAGES_DISPLAY "${KOHA_OPAC_LANGUAGES_DISPLAY}")"
+  KOHA_TRANSLATIONS_REINSTALL="$(_env_val "${KOHA_ENV_FILE}" KOHA_TRANSLATIONS_REINSTALL "${KOHA_TRANSLATIONS_REINSTALL}")"
   TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT "${TRAEFIK_HTTP_PORT}")"
   TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT "${TRAEFIK_HTTPS_PORT}")"
   TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT "${TRAEFIK_DASHBOARD_PORT}")"
@@ -113,6 +119,120 @@ reload_runtime_config() {
   TLS_CERTRESOLVER="$(_env_val "${KOHA_ENV_FILE}" TLS_CERTRESOLVER "${TLS_CERTRESOLVER}")"
   DB_NAME="koha_${KOHA_INSTANCE}"
   DB_USER="koha_${KOHA_INSTANCE}"
+}
+
+normalize_language_list() {
+  # Keep only valid language tags, deduplicate, and ensure 'en' is first.
+  local raw="$1"
+  local token
+  local -a parts
+  local -a ordered
+  local -a normalized
+  declare -A seen=()
+
+  IFS=',' read -r -a parts <<<"${raw}"
+  for token in "${parts[@]}"; do
+    token="${token//[[:space:]]/}"
+    [[ -z "${token}" ]] && continue
+    [[ "${token}" =~ ^[A-Za-z0-9_-]+$ ]] || die "Invalid language tag '${token}' in KOHA_DESIRED_LANGUAGES"
+    if [[ -z "${seen[${token}]+x}" ]]; then
+      seen["${token}"]=1
+      ordered+=("${token}")
+    fi
+  done
+
+  normalized=("en")
+  for token in "${ordered[@]}"; do
+    [[ "${token}" == "en" ]] && continue
+    normalized+=("${token}")
+  done
+
+  local out=""
+  for token in "${normalized[@]}"; do
+    out+="${out:+,}${token}"
+  done
+  echo "${out}"
+}
+
+wait_translation_runtime() {
+  local attempts=0
+  local max=180
+
+  log "Waiting for Koha translation runtime and full startup readiness for instance '${KOHA_INSTANCE}'..."
+  until koha_compose exec -T koha bash -lc "
+    test -x /kohadevbox/koha/misc/translator/translate &&
+    test -d /kohadevbox/koha/misc/translator/po &&
+    test -f /ktd_ready &&
+    test -d /etc/koha/sites/${KOHA_INSTANCE} &&
+    id ${KOHA_INSTANCE}-koha >/dev/null 2>&1 &&
+    sudo koha-shell ${KOHA_INSTANCE} -p -c 'true' >/dev/null 2>&1
+  " >/dev/null 2>&1; do
+    (( ++attempts ))
+    if (( attempts >= max )); then
+      echo ""
+      die "Koha translation runtime/full startup for instance '${KOHA_INSTANCE}' did not become ready after $(( max * 4 )) seconds"
+    fi
+    printf "\r  [%d/%d] waiting..." "${attempts}" "${max}"
+    sleep 4
+  done
+  echo ""
+  ok "Koha translation runtime and full startup for instance '${KOHA_INSTANCE}' are ready."
+}
+
+configure_koha_languages() {
+  hdr "Configuring Koha interface languages"
+
+  local languages_raw="${KOHA_DESIRED_LANGUAGES:-en}"
+  local normalized_languages
+  normalized_languages="$(normalize_language_list "${languages_raw}")"
+
+  local opac_display="${KOHA_OPAC_LANGUAGES_DISPLAY:-1}"
+  [[ "${opac_display}" =~ ^[01]$ ]] || die "KOHA_OPAC_LANGUAGES_DISPLAY must be 0 or 1 (current: '${opac_display}')"
+
+  local reinstall="${KOHA_TRANSLATIONS_REINSTALL:-no}"
+  reinstall="$(echo "${reinstall}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${reinstall}" =~ ^(yes|no)$ ]] || die "KOHA_TRANSLATIONS_REINSTALL must be yes or no (current: '${KOHA_TRANSLATIONS_REINSTALL}')"
+
+  log "Language list from env/.env: ${normalized_languages}"
+
+  local -a languages
+  local -a install_languages
+  local lang
+  IFS=',' read -r -a languages <<<"${normalized_languages}"
+  for lang in "${languages[@]}"; do
+    [[ "${lang}" == "en" ]] && continue
+    install_languages+=("${lang}")
+  done
+
+  if (( ${#install_languages[@]} > 0 )); then
+    wait_translation_runtime
+    for lang in "${install_languages[@]}"; do
+      if [[ "${reinstall}" == "no" ]]; then
+        if koha_compose exec -T koha bash -lc "test -d /usr/share/koha/intranet/htdocs/intranet-tmpl/prog/${lang} && test -d /usr/share/koha/opac/htdocs/opac-tmpl/bootstrap/${lang}" >/dev/null 2>&1; then
+          ok "Language ${lang} already installed; skipping (set KOHA_TRANSLATIONS_REINSTALL=yes to force reinstall)."
+          continue
+        fi
+      fi
+
+      log "Installing translation pack: ${lang}"
+      koha_compose exec -T koha bash -lc "export KOHA_CONF=/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml PERL5LIB=\"/kohadevbox/koha:/kohadevbox/koha/lib:\${PERL5LIB}\"; cd /kohadevbox/koha/misc/translator && ./translate install ${lang}"
+    done
+  else
+    log "No extra translation packs requested (only 'en')."
+  fi
+
+  log "Applying language preferences to database (${DB_NAME})"
+  docker exec "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" "${DB_NAME}" -e "
+UPDATE systempreferences SET value='${normalized_languages}' WHERE variable='StaffInterfaceLanguages';
+UPDATE systempreferences SET value='${normalized_languages}' WHERE variable='OPACLanguages';
+UPDATE systempreferences SET value='${opac_display}' WHERE variable='opaclanguagesdisplay';
+"
+
+  if ! koha_compose exec -T koha bash -lc "sudo koha-shell ${KOHA_INSTANCE} -p -c '/kohadevbox/koha/misc/bin/clear_cache.pl'" >/dev/null 2>&1; then
+    warn "Could not run clear_cache.pl automatically; changes still applied and will take effect after cache expiry/restart."
+  fi
+
+  ok "Language configuration applied: Staff/OPAC=${normalized_languages}, opaclanguagesdisplay=${opac_display}"
 }
 
 # ---------------------------------------------------------------------------
@@ -605,6 +725,7 @@ restore_backup_bundle() {
 
   export USE_EXISTING_DB=yes
   start_koha
+  configure_koha_languages
 
   rm -rf "${stage_dir}"
   trap - RETURN
@@ -774,6 +895,11 @@ ${BOLD}Koha source bootstrap (env/.env):${RESET}
   KOHA_GIT_DEPTH        Shallow clone depth (positive integer)
   KOHA_GIT_URL          Optional override for forks/mirrors
 
+${BOLD}Koha language automation (env/.env):${RESET}
+  KOHA_DESIRED_LANGUAGES       Comma list for final UI languages (e.g. en,es-ES,ro-RO)
+  KOHA_OPAC_LANGUAGES_DISPLAY  1 to show OPAC language chooser, 0 to hide it
+  KOHA_TRANSLATIONS_REINSTALL  yes to reinstall packs on every start, no to install missing only
+
 ${BOLD}Examples:${RESET}
   $(basename "$0") start                    # Fresh DB + demo data, follow logs
   $(basename "$0") start --no-demo-data     # Fresh DB, clean catalogue (no sample records)
@@ -782,6 +908,7 @@ ${BOLD}Examples:${RESET}
   $(basename "$0") start --build-opensearch # Rebuild OS images only, then start
   $(basename "$0") start --no-fresh-db      # Restart without wiping the database
   $(basename "$0") start --no-logs          # Start without tailing logs
+  KOHA_DESIRED_LANGUAGES=en,es-ES,ro-RO $(basename "$0") start
   $(basename "$0") restart                  # Quick restart (DB reset + koha only)
   $(basename "$0") restart --no-demo-data   # Quick restart, clean catalogue
   $(basename "$0") stop                     # Stop everything
@@ -909,6 +1036,7 @@ case "${COMMAND}" in
       log "--no-fresh-db: USE_EXISTING_DB=yes exported to Koha container"
     fi
     start_koha
+    configure_koha_languages
     echo ""
     log "Koha container is running and initialising."
     [[ "${FOLLOW_LOGS}" == true ]] && follow_logs
@@ -934,6 +1062,7 @@ case "${COMMAND}" in
     wait_db_ready
     [[ "${FRESH_DB}" == true ]] && reset_database
     start_koha
+    configure_koha_languages
     [[ "${FOLLOW_LOGS}" == true ]] && follow_logs
     ;;
 

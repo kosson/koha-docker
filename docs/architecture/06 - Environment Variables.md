@@ -27,6 +27,9 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 | `OS_CLUSTER_NAME` | OpenSearch cluster name | `koha-cluster` | — |
 | `OS_SEARCH_SNAPSHOT_SIZE` | Search cache size | `5%` | os05 node only |
 | `LOAD_DEMO_DATA` | Load MARC sample data | `yes` | 436 records, ~400KB |
+| `KOHA_DESIRED_LANGUAGES` | Final UI languages to enforce | `en` | Example: `en,es-ES,ro-RO` |
+| `KOHA_OPAC_LANGUAGES_DISPLAY` | OPAC language chooser visibility | `1` | `1` show, `0` hide |
+| `KOHA_TRANSLATIONS_REINSTALL` | Translation pack install mode | `no` | `no` missing-only, `yes` force reinstall |
 | `SYNC_REPO` | Host Koha source path | `/home/kosson/Documents/koha` | Bind mount target |
 | `KOHA_GIT_CLONE_MODE` | Auto-clone strategy for missing `SYNC_REPO` | `tag` | `tag` (deterministic) or `branch` (bleeding edge) |
 | `KOHA_GIT_TAG` | Exact Koha tag when clone mode is `tag` | `25.11.05-1` | Example: `25.11.05-1` |
@@ -76,6 +79,16 @@ Used by: `docker-compose.yml` (koha service), `stack.sh`, `traefik/`
 ```
 
 The `<userinfo>` section is auto-synced by `stack.sh` to match `OPENSEARCH_INITIAL_ADMIN_PASSWORD`.
+
+## Language Automation Notes
+
+`stack.sh` applies language automation after Koha starts (for `start`, `restart`, and `restore`).
+
+- It normalizes `KOHA_DESIRED_LANGUAGES` and always keeps `en`.
+- It installs requested translation packs via `misc/translator/translate`.
+- It updates DB sysprefs: `StaffInterfaceLanguages`, `OPACLanguages`, `opaclanguagesdisplay`.
+
+Keep `SKIP_L10N` empty or `no`; when set to `yes`, translation packs are not fetched and non-English installs fail.
 
 ## OpenSearch Config: `OpenSearch-3.6/.env`
 

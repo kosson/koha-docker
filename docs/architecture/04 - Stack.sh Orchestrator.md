@@ -4,7 +4,7 @@ tags: [stack.sh, startup, commands, build, deploy, network-creation, log-scrapin
 ---
 # Stack.sh Orchestrator
 
-The main management script. Location: `/home/kosson/Documents/koha-docker/stack.sh` (722 lines)
+The main management script. Location: `stack.sh` at the repository root.
 
 ## Usage
 
@@ -30,6 +30,7 @@ Commands:
 ./stack.sh start --no-demo-data # Skip sample data loading
 ./stack.sh start --with-demo-data   # Force sample data loading
 ./stack.sh start --no-logs      # Start without tailing logs
+KOHA_DESIRED_LANGUAGES=en,es-ES,ro-RO ./stack.sh start
 ```
 
 ## Startup Sequence (start --build)
@@ -69,27 +70,40 @@ Commands:
    ├── If 401: run initial_api_calls.sh + force-recreate os01 + wait for green
    └── If other: warn and continue
 
-8. start_opensearch()
+8. start_traefik()
+   ├── ensure_frontend_network()
+   └── bring up Traefik router
+
+9. start_opensearch()
    ├── Check if kosson/opensearch-icu:3.6.0 exists locally
    ├── If missing: build_opensearch() (docker compose build os01)
    ├── docker compose up -d os01 os02 os03 os04 os05
    └── wait_opensearch_green() (poll _cluster/health, up to 6 minutes)
 
-9. start_support_services()
+10. start_opensearch_dashboards()
+
+11. start_support_services()
    ├── koha_compose up -d db memcached
    └── wait_db_ready() (poll mysql -uroot -p... 'SELECT 1;', up to 60s)
 
-10. reset_database()
+12. reset_database()
    ├── DROP DATABASE IF EXISTS koha_kohadev
    ├── CREATE DATABASE koha_kohadev (utf8mb4, utf8mb4_unicode_ci)
    ├── GRANT ALL ON koha_kohadev.* TO koha_kohadev@'%'
    └── FLUSH PRIVILEGES
 
-11. start_koha()
+13. start_koha()
     ├── export LOAD_DEMO_DATA
     └── koha_compose up -d --force-recreate koha
 
-12. follow_logs() (default behavior)
+14. configure_koha_languages()
+    ├── Read KOHA_DESIRED_LANGUAGES, KOHA_OPAC_LANGUAGES_DISPLAY, KOHA_TRANSLATIONS_REINSTALL
+    ├── Normalize language list (always include en)
+    ├── Install requested translation packs via misc/translator/translate
+    ├── Update StaffInterfaceLanguages, OPACLanguages, opaclanguagesdisplay in DB
+    └── Attempt cache clear (non-fatal warning on failure)
+
+15. follow_logs() (default behavior)
     └── docker compose logs -f koha
         └── On milestone "koha-testing-docker has started up":
             print summary box with URLs and credentials
@@ -156,6 +170,22 @@ KOHA_GIT_BRANCH=main
 KOHA_GIT_DEPTH=1
 SYNC_REPO=/absolute/path/to/koha-docker/koha
 ```
+
+### Language Automation
+
+Post-start language setup is env-driven:
+
+```bash
+KOHA_DESIRED_LANGUAGES=en,es-ES,ro-RO
+KOHA_OPAC_LANGUAGES_DISPLAY=1
+KOHA_TRANSLATIONS_REINSTALL=no
+```
+
+Notes:
+
+- `en` is always included in final language preferences.
+- `KOHA_TRANSLATIONS_REINSTALL=no` installs only missing packs.
+- Keep `SKIP_L10N` empty or `no`; otherwise non-English pack installation will fail.
 
 ## Color Output
 

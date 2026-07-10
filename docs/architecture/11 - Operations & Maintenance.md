@@ -41,7 +41,16 @@ This will:
 8. Start MariaDB + Memcached (wait for ready)
 9. Reset database (drop/create/grant)
 10. Start Koha container
-11. Tail logs, print URL summary on startup
+11. Apply configured language automation (translation packs + sysprefs)
+12. Tail logs, print URL summary on startup
+
+If you want multilingual setup on first boot, set in `env/.env` before starting:
+
+```bash
+KOHA_DESIRED_LANGUAGES=en,es-ES,ro-RO
+KOHA_OPAC_LANGUAGES_DISPLAY=1
+KOHA_TRANSLATIONS_REINSTALL=no
+```
 
 **Time to first run**: 5-15 minutes (depends on OpenSearch build + startup)
 

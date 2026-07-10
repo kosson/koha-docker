@@ -87,6 +87,7 @@ For bleeding-edge shallow clone, switch to:
 - `KOHA_DOMAIN` -> recommended `.127.0.0.1.nip.io`
 - `KOHA_DB_ROOT_PASSWORD`, `KOHA_DB_PASSWORD`, `KOHA_PASS`
 - `OPENSEARCH_INITIAL_ADMIN_PASSWORD` and matching `ELASTIC_OPTIONS` userinfo
+- Optional, for repeatable multi-language installs: `KOHA_DESIRED_LANGUAGES` (for example `en,es-ES,ro-RO`)
 
 3. Align OpenSearch password in `OpenSearch-3.6/.env` with `env/.env`.
 
@@ -450,6 +451,62 @@ Critical values to verify:
 | Variable | Default | Description |
 |---|---|---|
 | `LOAD_DEMO_DATA` | `yes` | `yes` — load 436 sample MARC bibliographic records, authority records, items, and patron data during first startup (via `misc4dev/insert_data.pl`). `no` — skip sample data; the catalogue is empty and only the superlibrarian account is created. Override at runtime with `./stack.sh start --no-demo-data` or `--with-demo-data`. |
+
+#### Language automation
+
+`stack.sh` applies these values automatically after the Koha container starts (for `start`, `restart`, and `restore`).
+Keep `SKIP_L10N` empty or `no`; if set to `yes`, no translation packs are fetched and non-English installs will fail.
+
+You do not need to run any separate translation command if `env/.env` is configured.
+After setting `KOHA_DESIRED_LANGUAGES`, just run one of the normal stack commands:
+
+- `./stack.sh start` (fresh flow)
+- `./stack.sh start --no-fresh-db` (resume existing DB)
+- `./stack.sh restart` (quick restart path)
+
+`stack.sh` will handle translation pack install/update and language sysprefs automatically.
+
+| Variable | Default | Description |
+|---|---|---|
+| `KOHA_DESIRED_LANGUAGES` | `en` | Final language list enforced in both `StaffInterfaceLanguages` and `OPACLanguages`. Comma-separated (example: `en,es-ES,ro-RO`). `en` is always included automatically. |
+| `KOHA_OPAC_LANGUAGES_DISPLAY` | `1` | Sets `opaclanguagesdisplay` (`1` show selector, `0` hide selector). |
+| `KOHA_TRANSLATIONS_REINSTALL` | `no` | `no` installs only missing translation packs; `yes` reinstalls configured packs on every start/restart. |
+
+Example configuration in `env/.env`:
+
+```bash
+KOHA_DESIRED_LANGUAGES=en,es-ES,ro-RO
+KOHA_OPAC_LANGUAGES_DISPLAY=1
+KOHA_TRANSLATIONS_REINSTALL=no
+```
+
+##### How to find the correct language string
+
+Use the language tag from Koha translation filenames (for example `es-ES`, `ro-RO`, `fr-FR`).
+Those tags are the values expected in `KOHA_DESIRED_LANGUAGES`.
+
+From your Koha source tree, list all available tags:
+
+```bash
+cd "$SYNC_REPO/misc/translator/po"
+ls *-pref.po | sed 's/-pref.po$//' | sort
+```
+
+Quick check for one language before adding it to `KOHA_DESIRED_LANGUAGES`:
+
+```bash
+cd "$SYNC_REPO/misc/translator/po"
+ls <lang>-pref.po <lang>-staff-prog.po <lang>-opac-bootstrap.po
+```
+
+Replace `<lang>` with the tag you plan to use (example: `es-ES`).
+
+##### Where to verify language support online
+
+- Koha translation platform (official): https://translate.koha-community.org/
+- Koha l10n repository (source of PO files used by this stack): https://gitlab.com/koha-community/koha-l10n
+
+If a language tag does not exist there (or is only partially translated), avoid adding it to `KOHA_DESIRED_LANGUAGES` until the required PO files are available.
 
 #### Database
 

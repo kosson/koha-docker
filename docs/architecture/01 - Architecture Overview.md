@@ -106,7 +106,7 @@ koha container (Apache + Perl + Koha instance)
 
 | File | Lines | Purpose |
 |---|---|---|
-| `stack.sh` | 722 | Main orchestrator — start, stop, reset, build, logs |
+| `stack.sh` | dynamic | Main orchestrator — start, stop, reset, build, logs |
 | `files/run.sh` | 585 | Koha container entrypoint — init, config, startup |
 | `Dockerfile` | 236 | Koha image definition — packages, tools, repos |
 | `docker-compose.yml` | 150 | Main compose: koha, db, memcached |
