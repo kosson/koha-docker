@@ -25,3 +25,7 @@ OpenSearch-3.6/.env
 
 # Do not push backups
 backups/
+
+# Obsidian repo settings and artifacts
+docs/.obsidian
+docs/TrackerBaseObsidianSpecific.base
