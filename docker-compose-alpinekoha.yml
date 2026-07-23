@@ -3,7 +3,7 @@ services:
         image: ${DB_IMAGE:-mariadb:10.11}
         command:
             - "--sql-mode=${DB_SQL_MODE:-STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION}"
-            - "--ssl=ON"
+            - "--ssl=OFF"
         restart: always
         environment:
             MYSQL_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
@@ -12,8 +12,8 @@ services:
             MYSQL_PASSWORD: ${KOHA_DB_PASSWORD:-password}
         volumes:
             - koha-db-data:/var/lib/mysql
-            - ./files/mariadb-ssl:/etc/mysql/ssl:ro
-            - ./files/mariadb-ssl/mariadb-ssl.cnf:/etc/mysql/conf.d/zz-koha-ssl.cnf:ro
+            - ./files-alpine/mariadb-ssl:/etc/mysql/ssl:ro
+            - ./files-alpine/mariadb-ssl/mariadb-ssl.cnf:/etc/mysql/conf.d/zz-koha-ssl.cnf:ro
         networks:
             - kohanet
     rabbitmq:
@@ -34,7 +34,7 @@ services:
         networks:
             - kohanet
     koha:
-        image: ${KOHA_ALPINE_IMAGE_TAG:-kosson/koha-alpinekoha:test}
+        image: ${KOHA_ALPINE_IMAGE_TAG:-kosson/koha-alpine:26.11}
         pull_policy: never
         build:
             context: .
@@ -48,7 +48,7 @@ services:
         volumes:
             - ${SYNC_REPO}:/kohadevbox/koha
             - ${OPENSEARCH_CA_CERT:-/dev/null}:/kohadevbox/opensearch-root-ca.pem:ro
-            - ./files/mariadb-ssl:/etc/mysql/ssl:ro
+            - ./files-alpine/mariadb-ssl:/etc/mysql/ssl:ro
         tmpfs:
             - /cover_db
             - /tmp
@@ -65,7 +65,7 @@ services:
             KOHA_CI_INCREMENTAL_RUNS_REPORT: ${KOHA_CI_INCREMENTAL_RUNS_REPORT:-}
             KOHA_CI_INCREMENTAL_RUNS_TOKEN: ${KOHA_CI_INCREMENTAL_RUNS_TOKEN:-}
             KOHA_ELASTICSEARCH: ${KOHA_ALPINE_ELASTICSEARCH:-no}
-            SKIP_YARN_INSTALL: ${KOHA_ALPINE_SKIP_YARN_INSTALL:-yes}
+            SKIP_YARN_INSTALL: ${KOHA_ALPINE_SKIP_YARN_INSTALL:-no}
             ELASTIC_SERVER: ${ELASTIC_SERVER:-es:9200}
             ELASTIC_OPTIONS: ${ELASTIC_OPTIONS:-}
             OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-}

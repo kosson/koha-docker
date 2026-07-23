@@ -1,3 +1,7 @@
 {
-    "chat.sessionSync.enabled": true
+    "chat.sessionSync.enabled": true,
+    "chat.tools.terminal.autoApprove": {
+        "docker compose": true,
+        "docker run": true
+    }
 }

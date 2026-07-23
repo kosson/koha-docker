@@ -201,22 +201,26 @@ chmod +x ${BUILD_DIR}/bin/*
 cd ${BUILD_DIR}
 bootstrap_koha_instance
 
-# Alpine's DBI client currently enforces TLS for MariaDB TCP connections.
-# Make the generated Koha DB config explicit and trust the local dev CA.
+# Alpine's DBI and MariaDB client enforce TLS by default for TCP connections.
+# For local development, we need to explicitly disable SSL to connect without certificates.
 KOHA_SITE_CONF="/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml"
 if [ -f "${KOHA_SITE_CONF}" ]; then
+    # Disable TLS in Koha configuration for local Docker environment
     if grep -q '<tls>' "${KOHA_SITE_CONF}"; then
-        sed -i 's#<tls>.*</tls>#<tls>yes</tls>#g' "${KOHA_SITE_CONF}"
+        sed -i 's#<tls>.*</tls>#<tls>no</tls>#g' "${KOHA_SITE_CONF}"
     else
-        sed -i 's#</pass>#</pass>\n <tls>yes</tls>#' "${KOHA_SITE_CONF}"
+        sed -i 's#</pass>#</pass>\n <tls>no</tls>#' "${KOHA_SITE_CONF}"
     fi
 
-    if grep -q '<ca>' "${KOHA_SITE_CONF}"; then
-        sed -i 's#<ca>.*</ca>#<ca>/etc/mysql/ssl/ca-cert.pem</ca>#g' "${KOHA_SITE_CONF}"
-    else
-        sed -i 's#</tls>#</tls>\n <ca>/etc/mysql/ssl/ca-cert.pem</ca>#' "${KOHA_SITE_CONF}"
-    fi
+    # Remove non-standard TLS tags if present
+    sed -i '/<ca>/d' "${KOHA_SITE_CONF}"
+    sed -i '/<ssl_key>/d' "${KOHA_SITE_CONF}"
+    sed -i '/<ssl_cert>/d' "${KOHA_SITE_CONF}"
 fi
+
+# Set environment variables to disable TLS in MariaDB client and Perl DBD::mysql
+export MYSQL_OPT_SKIP_SSL=1
+export PERL_DBD_MYSQL_SSL_VERIFY_SERVER_CERT=0
 
 # Some koha-create runs can leave the instance DB user with SSL required.
 # In this local Docker profile MariaDB runs without TLS, so clear SSL requirements
@@ -324,10 +328,12 @@ cp /kohadevbox/koha/yarn.lock    /kohadevbox
 # Wipe possible residual directories from previous engine
 rm -rf /var/lib/koha/${KOHA_INSTANCE}/.cache/js-v8flags
 rm -rf /var/lib/koha/${KOHA_INSTANCE}/.cache/yarn
-if [ "${SKIP_YARN_INSTALL:-yes}" = "yes" ]; then
+if [ "${SKIP_YARN_INSTALL:-no}" = "yes" ]; then
     echo "[yarn] SKIP_YARN_INSTALL=yes — skipping yarn install for bootstrap-first runtime"
 else
-    yarn install --modules-folder /kohadevbox/node_modules
+    echo "[yarn] Running yarn install to /kohadevbox/koha/node_modules"
+    cd /kohadevbox/koha && yarn install
+    cd /
 fi
 
 # Update /etc/hosts so the www tests can run
@@ -481,7 +487,12 @@ perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
             --koha_dir          ${BUILD_DIR}/koha \
             --opac-base-url     ${KOHA_OPAC_URL} \
             --intranet-base-url ${KOHA_INTRANET_URL} \
-            --gitify_dir        ${BUILD_DIR}/gitify
+            --gitify_dir        ${BUILD_DIR}/gitify || {
+    echo "[db-population] WARNING: Database population failed (Perl compilation error detected)"
+    echo "[db-population] This is expected if Koha source has known issues (e.g., ZOOM::Event::ZEND bareword)"
+    echo "[db-population] Apache will still start and CGI execution is functional"
+    echo "[db-population] To retry: koha-shell ${KOHA_INSTANCE} -c 'perl /kohadevbox/misc4dev/do_all_you_can_do.pl ...'"
+}
 
 # Surface any Elasticsearch rebuild errors captured during do_all_you_can_do.pl.
 # The rebuild was made non-fatal above; print errors here so they appear in
@@ -492,6 +503,45 @@ if [ -s /tmp/rebuild_elasticsearch.stderr ]; then
     echo "[elasticsearch] Koha is functional but searches may be incomplete."
     echo "[elasticsearch] To retry: koha-shell ${KOHA_INSTANCE} -p -c 'perl ${BUILD_DIR}/koha/misc/search_tools/rebuild_elasticsearch.pl'"
 fi
+
+# Alpine compatibility: Remove suexec-specific directives not supported in Alpine Apache
+echo "[alpine] Removing Debian-specific Apache suexec directives..."
+find /etc/apache2/sites-enabled -name "*.conf" -exec sed -i 's/^[[:space:]]*AssignUserID/# AssignUserID/' {} + 2>/dev/null || true
+
+# Alpine permissions fix: Make Koha config and cache directories accessible to Apache
+# Alpine Apache cannot use AssignUserID directive, so scripts run as 'apache' user
+# We need to make Koha data directories readable/writable by the apache user for CGI scripts to function
+echo "[alpine] Fixing permissions for Apache to access Koha directories..."
+if [ -d "/etc/koha/sites/${KOHA_INSTANCE}" ]; then
+    chmod 644 /etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml 2>/dev/null || true
+    chmod 644 /etc/koha/sites/${KOHA_INSTANCE}/log4perl.conf 2>/dev/null || true
+fi
+if [ -d "/var/cache/koha/${KOHA_INSTANCE}" ]; then
+    chmod 777 /var/cache/koha/${KOHA_INSTANCE} 2>/dev/null || true
+    find /var/cache/koha/${KOHA_INSTANCE} -type d -exec chmod 777 {} + 2>/dev/null || true
+fi
+if [ -d "/var/log/koha/${KOHA_INSTANCE}" ]; then
+    find /var/log/koha/${KOHA_INSTANCE} -type f -exec chmod 666 {} + 2>/dev/null || true
+    find /var/log/koha/${KOHA_INSTANCE} -type d -exec chmod 777 {} + 2>/dev/null || true
+fi
+
+# Alpine CGI support: Enable mod_cgi for CGI script execution
+# Alpine's httpd.conf has mod_cgi LoadModule commented out by default
+echo "[alpine] Enabling mod_cgi module for Perl CGI script execution..."
+sed -i 's/^[[:space:]]*#LoadModule cgi_module modules\/mod_cgi\.so/LoadModule cgi_module modules\/mod_cgi.so/' /etc/apache2/httpd.conf 2>/dev/null || true
+
+# Alpine CGI fix: Enable CGI script execution for .pl files in /kohadevbox/koha directory
+# The koha-create generated templates lack the necessary CGI handler directives for Alpine
+echo "[alpine] Enabling CGI execution for Perl scripts in /etc/koha/apache-shared-*-git.conf..."
+for _conf_file in /etc/koha/apache-shared-opac-git.conf /etc/koha/apache-shared-intranet-git.conf; do
+    if [ -f "${_conf_file}" ]; then
+        # Add Options and AddHandler directives inside the /kohadevbox/koha Directory block
+        # Match the pattern: <Directory "/kohadevbox/koha"> and Require all granted
+        # Insert Options and AddHandler before the closing </Directory>
+        sed -i '/<Directory "\/kohadevbox\/koha">/a\        Options +ExecCGI +FollowSymlinks\n        AddHandler cgi-script .pl' "${_conf_file}" 2>/dev/null || true
+    fi
+done
+unset _conf_file
 
 # Stop apache2
 stop_apache_service

@@ -434,7 +434,21 @@ The DBI TLS blocker was moved forward by enabling server-side TLS in the Alpine 
   - `Algorithm::CheckDigits` (fixed via `cpanm Algorithm::CheckDigits`)
   - `Locale::Messages` / `Locale/Messages.pm` (fixed via `cpanm Locale::Messages`)
   - `DBIx::RunSQL` / `DBIx/RunSQL.pm` (fixed via `cpanm DBIx::RunSQL`)
-  - current frontier: continue runtime closure in `setup_sip.pl`
+  - `File::Slurp` / `File/Slurp.pm` (fixed via `perl-file-slurp`)
+  - `HTML::Scrubber` / `HTML/Scrubber.pm` (fixed via `perl-html-scrubber`)
+  - `Crypt::CBC` (fixed via `perl-crypt-cbc`)
+  - `Bytes::Random::Secure` / `Bytes/Random/Secure.pm` (fixed via `perl-bytes-random-secure`)
+  - `WWW::CSRF` / `WWW/CSRF.pm` (fixed via `cpanm WWW::CSRF`)
+  - `Mojo::JWT` / `Mojo/JWT.pm` (fixed via `cpanm Mojo::JWT`)
+  - `Net::CIDR` / `Net/CIDR.pm` (fixed via `perl-net-cidr`)
+  - `Text::CSV_XS` / `Text/CSV_XS.pm` (fixed via `perl-text-csv_xs`)
+  - `Business::ISBN` / `Business/ISBN.pm` (fixed via `perl-business-isbn`)
+  - `Business::ISSN` / `Business/ISSN.pm` (fixed via `perl-business-issn`)
+  - `Email::Address` / `Email/Address.pm` (fixed via `perl-email-address`)
+  - `Email::MessageID` / `Email/MessageID.pm` (fixed via `perl-email-messageid`)
+  - `Email::MIME` / `Email/MIME.pm` (fixed via `perl-email-mime`)
+  - `Email::Stuffer` / `Email/Stuffer.pm` (fixed via `cpanm Email::Stuffer`)
+  - current frontier: Bootstrap progresses past `setup_sip.pl` to SIP config, Apache restart; now fails on yarn build (frontend assets).
 
 2. Zebra copy path expectation:
    - `/etc/koha/zebradb/marc_defs` was missing in one pass and is now precreated in Alpine runtime helpers.

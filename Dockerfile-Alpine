@@ -15,13 +15,17 @@ RUN apk add --no-cache \
     bash \
     bash-completion \
     build-base \
+    perl-bytes-random-secure \
     coreutils \
+    perl-business-isbn \
+    perl-business-issn \
     perl-class-accessor \
     perl-class-factory-util \
     perl-cgi \
     perl-cgi-session \
     perl-class-inspector \
     perl-app-cpanminus \
+    perl-crypt-cbc \
     perl-crypt-eksblowfish \
     curl \
     docbook-xsl \
@@ -55,7 +59,12 @@ RUN apk add --no-cache \
     perl-datetime-format-strptime \
     perl-datetime-timezone \
     perl-doc \
+    perl-email-address \
+    perl-email-messageid \
+    perl-email-mime \
+    perl-file-slurp \
     perl-gd \
+    perl-html-scrubber \
     perl-json \
     perl-io-socket-ssl \
     perl-libwww \
@@ -63,6 +72,7 @@ RUN apk add --no-cache \
     perl-locale-gettext \
     perl-log-log4perl \
     perl-mojolicious \
+    perl-net-cidr \
     perl-net-idn-encode \
     perl-net-ssleay \
     perl-parallel-forkmanager \
@@ -73,8 +83,11 @@ RUN apk add --no-cache \
     perl-string-random \
     perl-sub-name \
     perl-template-toolkit \
+    perl-text-csv_xs \
     perl-utils \
+    perl-xml-libxslt \
     perl-xml-libxml \
+    perl-xml-simple \
     perl-yaml-libyaml \
     pwgen \
     rabbitmq-server \
@@ -143,6 +156,21 @@ RUN cpanm --notest Locale::Messages
 
 # Alpine 3.24 lacks a packaged DBIx::RunSQL.
 RUN cpanm --notest DBIx::RunSQL
+
+# Alpine 3.24 lacks a packaged WWW::CSRF.
+RUN cpanm --notest WWW::CSRF
+
+# Alpine 3.24 lacks a packaged Mojo::JWT.
+RUN cpanm --notest Mojo::JWT
+
+# Alpine 3.24 lacks packaged Email::Stuffer.
+RUN cpanm --notest Email::Stuffer
+
+# Alpine 3.24 lacks packaged Lingua::Stem.
+RUN cpanm --notest Lingua::Stem
+
+# Alpine 3.24 lacks a packaged Search::Elasticsearch.
+RUN cpanm --notest Search::Elasticsearch
 
 # Alpine 3.24 lacks a packaged DBIx::Class.
 RUN cpanm --notest DBIx::Class
@@ -238,6 +266,9 @@ RUN chmod 0755 /usr/local/bin/a2ensite /usr/local/bin/a2dissite /usr/local/bin/a
 RUN if [ -f /etc/apache2/httpd.conf ]; then \
         grep -Fqx 'IncludeOptional /etc/apache2/sites-enabled/*.conf' /etc/apache2/httpd.conf \
             || echo 'IncludeOptional /etc/apache2/sites-enabled/*.conf' >> /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule rewrite_module modules\/mod_rewrite.so/LoadModule rewrite_module modules\/mod_rewrite.so/' /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule cgi_module modules\/mod_cgi.so/LoadModule cgi_module modules\/mod_cgi.so/' /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule cgid_module modules\/mod_cgid.so/LoadModule cgid_module modules\/mod_cgid.so/' /etc/apache2/httpd.conf; \
     fi
 
 # Debian scripts use adduser long options not supported by BusyBox adduser.
@@ -406,6 +437,7 @@ COPY files-alpine/run.sh /kohadevbox/
 COPY files-alpine/lib /kohadevbox/lib
 COPY files-alpine/templates /kohadevbox/templates
 COPY files-alpine/git_hooks /kohadevbox/git_hooks
+COPY files-alpine/mariadb-ssl /etc/mysql/ssl
 COPY env/defaults.env /kohadevbox/templates/defaults.env
 
 # Ensure Linux line endings even when the repository is checked out or edited with CRLF.
