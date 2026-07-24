@@ -30,12 +30,14 @@
 ### 🟡 Current Blocker - Database Population SSL/TLS Conflict
 
 **Current Error Message:**
-```
+
+```log
 DBI connect('dbname=koha_kohadev;host=db;port=3306','koha_kohadev',...) failed: 
 TLS/SSL error: SSL is required, but the server does not support it
 ```
 
 **Root Cause Analysis:**
+
 - Alpine's DBD::mysql module (v4.055) is compiled with mandatory SSL support
 - Originally: MariaDB set to `--ssl=ON` + Perl DBI attempting to verify certificates = double TLS requirement causing certificate verification failures
 - Changed MariaDB to `--ssl=OFF`, but DBI layer still attempting TLS negotiation at protocol level
@@ -57,7 +59,14 @@ TLS/SSL error: SSL is required, but the server does not support it
    - Previously: Only added `mysql_ssl=1` when TLS enabled; now avoids adding parameters entirely when disabled
    - Code: Removed `mysql_ssl=0` append (tested but didn't help; Alpine DBI still attempts handshake)
 
+Online references to the issue (dig into it):
+
+- DBD::mysql::INSTALL - How to install and configure DBD::mysql https://metacpan.org/dist/DBD-mysql/view/lib/DBD/mysql/INSTALL.pod
+- https://github.com/perl5-dbi/DBD-mysql/issues/210
+- MySQL certificate verification changes due to Alpine 3.21 https://docs.skpr.io/changelog/2026-01-23-ssl-verify-certificate/ -> "Alpine 3.21 and above have changed the default mysql client to the mariadb client. As part of this change, the client now verifies the connection certificates by default. The solution is to disable the certificate verification using the MYSQL_ATTR_SSL_VERIFY_SERVER_CERT PDO setting for development (local and preview) environments."
+
 **Current State:**
+
 - Database accessible via mysql CLI with `--skip-ssl` flag ✅
 - MariaDB running without SSL ✅
 - Koha config set to `<tls>no</tls>` ✅
@@ -76,6 +85,7 @@ TLS/SSL error: SSL is required, but the server does not support it
 ## Files Modified
 
 ### Core Koha Source Code
+
 - `koha/Koha/Database.pm` - DSN building logic (line 229 comment added)
 - `koha/C4/Search.pm` - Bareword constant fix
 - `koha/C4/AuthoritiesMarc.pm` - Bareword constant fix

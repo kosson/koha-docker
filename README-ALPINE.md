@@ -9,14 +9,18 @@ A modern, lightweight Koha library management system runtime on Alpine Linux 3.2
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [SSL Certificate Management](#ssl-certificate-management)
-3. [Project Structure](#project-structure)
-4. [Environment Configuration](#environment-configuration)
-5. [Starting the Project](#starting-the-project)
-6. [Operating the System](#operating-the-system)
-7. [Architecture](#architecture)
-8. [Troubleshooting](#troubleshooting)
-9. [Development Workflow](#development-workflow)
+2. [Using stack-alpine.sh](#using-stack-alpinesh)
+3. [SSL Certificate Management](#ssl-certificate-management)
+4. [Project Structure](#project-structure)
+5. [Environment Configuration](#environment-configuration)
+6. [Starting the Project](#starting-the-project)
+7. [Operating the System](#operating-the-system)
+8. [Architecture](#architecture)
+9. [Troubleshooting](#troubleshooting)
+10. [Dockerfile-Alpine Shims (1-Minute Explainer)](#dockerfile-alpine-shims-1-minute-explainer)
+11. [OpenSearch Maintenance Tasks](#opensearch-maintenance-tasks)
+12. [Reproducible Rebuild and Validation (Clean Cycle)](#reproducible-rebuild-and-validation-clean-cycle)
+13. [Development Workflow](#development-workflow)
 
 ---
 
@@ -31,7 +35,7 @@ A modern, lightweight Koha library management system runtime on Alpine Linux 3.2
 ### Start the Stack in 3 Steps
 
 ```bash
-cd /mnt/beckie2/DEVELOPMENT/koha-docker
+cd /path/to/KOHA-DOCKER-SOLUTIONS/koha-docker
 
 # 1. Copy environment template (if first time)
 cp env/template.env env/.env
@@ -69,6 +73,66 @@ docker compose -f docker-compose-alpinekoha.yml down
 
 # To keep database between restarts, use: (data in koha-db-data volume persists)
 docker compose -f docker-compose-alpinekoha.yml stop
+```
+
+## Using stack-alpine.sh
+
+The `stack-alpine.sh` script is the Alpine-oriented orchestration wrapper for Koha + MariaDB + Memcached + RabbitMQ, with optional OpenSearch and Traefik lifecycle.
+
+Run all commands from the `koha-docker` directory:
+
+```bash
+cd /path/to/KOHA-DOCKER-SOLUTIONS/koha-docker
+```
+
+Common commands:
+
+```bash
+# Start full stack (default command)
+./stack-alpine.sh start
+
+# Start and keep current DB contents
+./stack-alpine.sh start --no-fresh-db
+
+# Start without following logs
+./stack-alpine.sh start --no-logs
+
+# Quick restart of Koha path (OpenSearch remains up)
+./stack-alpine.sh restart
+
+# Stop everything managed by the script
+./stack-alpine.sh stop
+
+# Build images only
+./stack-alpine.sh build --build
+
+# Show status and health summary
+./stack-alpine.sh status
+
+# Follow Koha startup/runtime logs
+./stack-alpine.sh logs
+```
+
+Alpine-specific startup profile:
+
+```bash
+# Fast resume path for existing DB (default)
+./stack-alpine.sh start --bootstrap-profile resume --no-fresh-db
+
+# Force full population/reindex path on existing DB
+./stack-alpine.sh start --bootstrap-profile full --no-fresh-db
+```
+
+Safety notes:
+
+1. `start` without `--no-fresh-db` may recreate the Koha DB (with confirmation if data is detected).
+2. `reset` is destructive and removes containers plus named volumes.
+3. Prefer `status` before and after operations to confirm OpenSearch/Koha health.
+
+For full options:
+
+```bash
+./stack-alpine.sh --help
 ```
 
 ---
@@ -328,6 +392,7 @@ nano env/.env
 | `KOHA_ALPINE_IMAGE_TAG` | `kosson/koha-alpine:26.11` | Docker image to use |
 | `KOHA_ALPINE_SKIP_YARN_INSTALL` | `no` | Skip frontend build (set to `yes` for faster start) |
 | `KOHA_ALPINE_ELASTICSEARCH` | `no` | Enable Elasticsearch search (requires additional setup) |
+| `APPLY_KOHA_PATCHES` | `no` | Apply `patches/*.patch` to mounted Koha source at startup (opt-in) |
 | `LOCAL_USER_ID` | (user's UID) | Linux user ID for file permissions |
 
 ### Advanced Variables
@@ -346,6 +411,9 @@ LOAD_DEMO_DATA=yes                 # Load sample library data
 
 # Database
 USE_EXISTING_DB=                    # Point to external database
+ALPINE_BOOTSTRAP_PROFILE=resume     # resume=fast existing-DB startup, full=force full population/reindex
+RUN_DB_POPULATION_ON_EXISTING_DB=   # optional explicit override (yes/no), usually leave empty
+APPLY_KOHA_PATCHES=no               # optional startup patch application (default off)
 PERL_LWP_SSL_VERIFY_HOSTNAME=1      # SSL verification for Koha
 
 # CPAN modules (advanced)
@@ -485,6 +553,58 @@ docker compose -f docker-compose-alpinekoha.yml exec koha \
 # This is non-critical and does not affect HTTP operation
 ```
 
+#### OpenSearch Maintenance Tasks
+
+```bash
+# 1) Verify OpenSearch node health (os01)
+docker compose -f OpenSearch-3.6/docker-compose.yml exec -T os01 \
+  curl -ks -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" \
+  https://localhost:9200/_cluster/health?pretty
+
+# 2) List indices and status
+docker compose -f OpenSearch-3.6/docker-compose.yml exec -T os01 \
+  curl -ks -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" \
+  'https://localhost:9200/_cat/indices?v&s=health,index'
+
+# 3) Restart OpenSearch nodes (cluster maintained outside Alpine stack)
+docker compose -f OpenSearch-3.6/docker-compose.yml restart os01 os02 os03 os04 os05
+
+# 4) Rebuild Koha search index after OpenSearch maintenance (if enabled)
+docker compose -f docker-compose-alpinekoha.yml exec koha \
+  koha-shell kohadev -p -c 'perl /kohadevbox/koha/misc/search_tools/rebuild_elasticsearch.pl'
+```
+
+Notes:
+
+1. Use OpenSearch checks only when `KOHA_ELASTICSEARCH=yes` and the `OpenSearch-3.6` cluster is running.
+2. Keep Alpine stack (`docker-compose-alpinekoha.yml`) and OpenSearch stack (`OpenSearch-3.6/docker-compose.yml`) lifecycle commands separate.
+
+#### Reproducible Rebuild and Validation (Clean Cycle)
+
+Use this sequence to reproduce a clean Alpine image rebuild and full verification on another machine:
+
+```bash
+cd /path/to/KOHA-DOCKER-SOLUTIONS/koha-docker
+
+# 1) Stop Alpine services
+docker compose -f docker-compose-alpinekoha.yml down --remove-orphans
+
+# 2) Remove Alpine Koha image (if already present)
+docker image rm -f kosson/koha-alpine:26.11 || true
+
+# 3) Rebuild from Dockerfile-Alpine without cache
+docker compose -f docker-compose-alpinekoha.yml build --no-cache koha
+
+# 4) Start Alpine services
+docker compose -f docker-compose-alpinekoha.yml up -d
+
+# 5) Run aggregate suite
+bash tests/run_all_tests.sh
+
+# 6) Run deterministic integration suite
+KOHA_ELASTICSEARCH=no APPLY_KOHA_PATCHES=no bash tests/run_integration_deterministic.sh
+```
+
 #### Clear Caches
 
 ```bash
@@ -544,32 +664,32 @@ docker compose -f docker-compose-alpinekoha.yml exec koha \
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Docker Host (Linux)                                         │
+│  Docker Host (Linux)                                        │
 ├─────────────────────────────────────────────────────────────┤
-│                                                               │
+│                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │ Koha Container (Alpine 3.24.1)                        │   │
+│  │ Koha Container (Alpine 3.24.1)                       │   │
 │  ├──────────────────────────────────────────────────────┤   │
-│  │                                                        │   │
+│  │                                                      │   │
 │  │  ┌─────────────────┐  ┌───────────────────────────┐  │   │
 │  │  │ Apache2 (CGI)   │  │ Perl/Koha Application     │  │   │
 │  │  │ :8080 (OPAC)    │  │ - run.sh entrypoint       │  │   │
 │  │  │ :8081 (Staff)   │  │ - koha-create bootstrap   │  │   │
 │  │  │                 │  │ - 38+ CPAN modules        │  │   │
-│  │  │ mod_rewrite ✓   │  │ - Yarn/Node.js assets    │  │   │
+│  │  │ mod_rewrite ✓   │  │ - Yarn/Node.js assets     │  │   │
 │  │  │ mod_cgi ✓       │  │ - /kohadevbox/koha (mount)│  │   │
 │  │  │ mod_cgid ✓      │  │                           │  │   │
 │  │  └─────────────────┘  └───────────────────────────┘  │   │
-│  │                                                        │   │
-│  │  /etc/mysql/ssl/              (SSL certificates)      │   │
-│  │  - ca-cert.pem, ca-key.pem                            │   │
-│  │  - server-cert.pem, server-key.pem                    │   │
-│  │  - mariadb-ssl.cnf (config)                           │   │
-│  │                                                        │   │
+│  │                                                      │   │
+│  │  /etc/mysql/ssl/              (SSL certificates)     │   │
+│  │  - ca-cert.pem, ca-key.pem                           │   │
+│  │  - server-cert.pem, server-key.pem                   │   │
+│  │  - mariadb-ssl.cnf (config)                          │   │
+│  │                                                      │   │
 │  └──────────────────────────────────────────────────────┘   │
-│         │               │               │                     │
-│         └───────┬───────┴───────┬───────┘                     │
-│                 │               │                             │
+│         │               │               │                   │
+│         └───────┬───────┴───────┬───────┘                   │
+│                 │               │                           │
 │  ┌──────────────▼──┐  ┌─────────▼─────────┐  ┌────────────┐ │
 │  │ MariaDB 10.11   │  │ RabbitMQ 3        │  │ Memcached  │ │
 │  │ :3306 (SSL ✓)   │  │ :61613 (STOMP)    │  │ :11211     │ │
@@ -578,10 +698,10 @@ docker compose -f docker-compose-alpinekoha.yml exec koha \
 │  │ koha_kohadev_* │  │ koha_kohadev queue │  │ Sessions   │ │
 │  │                 │  │                   │  │            │ │
 │  └─────────────────┘  └───────────────────┘  └────────────┘ │
-│         │                       │                    │         │
-│         └───────────────────────┼────────────────────┘         │
-│                                 │                              │
-└─────────────────────────────────┼──────────────────────────────┘
+│         │                       │                    │      │
+│         └───────────────────────┼────────────────────┘      │
+│                                 │                           │
+└─────────────────────────────────┼───────────────────────────┘
                                   │ Network (bridge: kohanet)
                             Docker compose network
 ```
@@ -627,6 +747,7 @@ MariaDB Database
 **Cause:** Missing Perl module
 
 **Solution:**
+
 ```bash
 # Check image logs
 docker compose -f docker-compose-alpinekoha.yml logs koha | grep "Can't locate"
@@ -648,6 +769,7 @@ docker compose -f docker-compose-alpinekoha.yml up -d
 **Cause:** Service running on 8080/8081
 
 **Solution:**
+
 ```bash
 # Find process
 lsof -i :8080
@@ -663,6 +785,7 @@ KOHA_OPAC_PORT=9080 KOHA_INTRANET_PORT=9081 \
 **Cause:** MariaDB SSL certificate mismatch or not ready
 
 **Solution:**
+
 ```bash
 # Check MariaDB status
 docker compose -f docker-compose-alpinekoha.yml logs db | grep -i error
@@ -681,15 +804,27 @@ docker compose -f docker-compose-alpinekoha.yml up -d
 #### HTTP 500 errors in browser
 
 **Check logs:**
+
 ```bash
 docker compose -f docker-compose-alpinekoha.yml logs koha | tail -n 50
 docker compose -f docker-compose-alpinekoha.yml exec koha \
   tail -f /var/log/koha/kohadev/intranet-error.log
 ```
 
+Common 500 signatures and fixes:
+
+1. `Can't locate Lingua/Stem/Snowball.pm`
+  - Cause: missing CPAN dependency in the running image.
+  - Fix: rebuild from updated `Dockerfile-Alpine` (which now installs `Lingua::Stem::Snowball`).
+
+2. `ZOOM::Query::*->new` warnings or `create ZOOM::Connection` compile errors
+  - Cause: incomplete/old ZOOM shim in older image layers.
+  - Fix: rebuild `docker-compose-alpinekoha.yml` image to pick up current shim implementation.
+
 #### Slow performance / High CPU
 
 **Check resource usage:**
+
 ```bash
 docker stats koha-docker-koha-1
 
@@ -717,6 +852,7 @@ docker stats koha-docker-koha-1
 #### Container can't reach host resources
 
 **Enable host network (development only):**
+
 ```bash
 # Edit docker-compose-alpinekoha.yml:
 # services:
@@ -738,6 +874,48 @@ docker compose -f docker-compose-alpinekoha.yml exec koha cat /etc/resolv.conf
 #       - 8.8.8.8
 #       - 8.8.4.4
 ```
+
+## Dockerfile-Alpine Shims (1-Minute Explainer)
+
+Why shims exist:
+
+- Alpine 3.24 repositories currently do not provide YAZ/`Net::Z3950::ZOOM` in a way compatible with this Koha runtime.
+- Koha still references ZOOM classes/constants in several search/bootstrap paths.
+
+What the shim does:
+
+1. Provides minimal `ZOOM` symbols Koha expects at compile/runtime:
+  - `ZOOM::Query::CCL2RPN`, `ZOOM::Query::CQL`, `ZOOM::Query::PQF`
+  - `ZOOM::Options`, `ZOOM::Connection`, `ZOOM::ResultSet`, `ZOOM::Record`
+  - `ZOOM::Event::ZEND`, `ZOOM::event`, and `create` import bridge.
+2. Returns safe no-op results where native Z39.50 behavior is unavailable.
+3. Prevents fatal compile/runtime errors in CGI and startup paths while preserving HTTP service availability.
+
+What the shim is not:
+
+- It is not a full YAZ implementation.
+- It is not intended to emulate full remote Z39.50 semantics.
+
+Operational guidance:
+
+1. Keep `APPLY_KOHA_PATCHES=no` by default and use only when explicitly needed.
+2. Rebuild the Alpine image after any shim change:
+
+```bash
+docker compose -f docker-compose-alpinekoha.yml build koha
+docker compose -f docker-compose-alpinekoha.yml up -d
+```
+
+3. Validate with:
+
+```bash
+bash tests/run_all_tests.sh
+KOHA_ELASTICSEARCH=no APPLY_KOHA_PATCHES=no bash tests/run_integration_deterministic.sh
+```
+
+Related tracker entry:
+
+- `docs/TRACKER/2026-07-24 — Alpine OPAC 500 remediation, ZOOM shim hardening, and test-suite stabilization.md`
 
 ---
 
@@ -826,8 +1004,6 @@ git push origin feature/my-feature
 # 5. Create pull request on GitHub
 ```
 
----
-
 ## Production Deployment
 
 ### Pre-Deployment Checklist
@@ -873,8 +1049,6 @@ For multi-server deployment, use:
 
 See `traefik/README.md` for reverse proxy setup.
 
----
-
 ## Support & Documentation
 
 | Resource | Location | Purpose |
@@ -885,7 +1059,6 @@ See `traefik/README.md` for reverse proxy setup.
 | Docker Docs | https://docs.docker.com/ | Docker and compose reference |
 | Koha Wiki | https://wiki.koha-community.org/ | Community knowledge base |
 
----
 
 ## Version Information
 
@@ -903,9 +1076,6 @@ See `traefik/README.md` for reverse proxy setup.
 
 This Alpine Docker setup follows Koha's licensing (GPL v3). SSL certificates are self-signed for development purposes.
 
----
-
 ## Contributing
 
 Improvements, bug reports, and patches welcome! Submit to the koha-docker repository.
-

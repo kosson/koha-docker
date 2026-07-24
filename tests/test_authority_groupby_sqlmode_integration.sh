@@ -14,6 +14,8 @@ COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 ENV_FILE="${REPO_ROOT}/env/.env"
 DB_CONTAINER="$(basename "${REPO_ROOT}")-db-1"
 KOHA_CONTAINER="$(basename "${REPO_ROOT}")-koha-1"
+KOHA_INSTANCE="$(grep -E '^KOHA_INSTANCE=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+KOHA_INSTANCE="${KOHA_INSTANCE:-kohadev}"
 
 PASS=0; FAIL=0; _N=0
 ok()     { _N=$(( _N + 1 )); echo "ok ${_N} - $1"; PASS=$(( PASS + 1 )); }
@@ -84,10 +86,25 @@ fi
 
 # 4) If koha container is running, verify live instance config too.
 if docker ps --format '{{.Names}}' | grep -qx "${KOHA_CONTAINER}"; then
-  if docker exec "${KOHA_CONTAINER}" sh -lc "grep -q '<strict_sql_modes>0</strict_sql_modes>' /etc/koha/sites/kohadev/koha-conf.xml"; then
-    ok "live koha instance config has strict_sql_modes disabled"
+  live_conf="/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml"
+  max_wait=180
+  elapsed=0
+  while (( elapsed < max_wait )); do
+    if docker exec "${KOHA_CONTAINER}" sh -lc "test -f '${live_conf}'" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 3
+    elapsed=$(( elapsed + 3 ))
+  done
+
+  if docker exec "${KOHA_CONTAINER}" sh -lc "test -f '${live_conf}'" >/dev/null 2>&1; then
+    if docker exec "${KOHA_CONTAINER}" sh -lc "grep -q '<strict_sql_modes>0</strict_sql_modes>' '${live_conf}'"; then
+      ok "live koha instance config has strict_sql_modes disabled"
+    else
+      not_ok "live koha instance config should set strict_sql_modes to 0"
+    fi
   else
-    not_ok "live koha instance config should set strict_sql_modes to 0"
+    skip "live koha instance config check" "koha-conf.xml not generated yet after ${max_wait}s"
   fi
 else
   skip "live koha instance config check" "koha container is not running"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# stack.sh — Manage the full Koha ILS + OpenSearch 3.6 + MariaDB stack
+# stack-alipne.sh — Manage the Alpine Koha stack + optional OpenSearch/Traefik services
 #
-# Usage: ./stack.sh <command> [options]
+# Usage: ./stack-alipne.sh <command> [options]
 #   start     Build (if requested) and start the full stack (default)
 #   stop      Stop all services gracefully
 #   restart   Quick restart: reset DB + recreate Koha container (no OS restart)
@@ -11,7 +11,7 @@
 #   backup    Create a portable backup bundle for env files + MariaDB data
 #   restore   Restore env files + MariaDB data from a backup bundle
 #
-# Run './stack.sh --help' for full usage.
+# Run './stack-alipne.sh --help' for full usage.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENSEARCH_DIR="${SCRIPT_DIR}/OpenSearch-3.6"
 TRAEFIK_DIR="${SCRIPT_DIR}/traefik"
-KOHA_COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
+KOHA_COMPOSE_FILE="${SCRIPT_DIR}/docker-compose-alpinekoha.yml"
 KOHA_ENV_FILE="${SCRIPT_DIR}/env/.env"
 KOHA_PROJECT_DIR="${SCRIPT_DIR}"
 KOHA_DEFAULT_REPO_URL="https://git.koha-community.org/Koha-community/Koha.git"
@@ -66,7 +66,7 @@ TRAEFIK_HTTP_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTP_PORT 80)"
 TRAEFIK_HTTPS_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_HTTPS_PORT 443)"
 TRAEFIK_DASHBOARD_PORT="$(_env_val "${TRAEFIK_DIR}/.env" TRAEFIK_DASHBOARD_PORT 8083)"
 ACME_EMAIL="$(_env_val "${TRAEFIK_DIR}/.env" ACME_EMAIL "")"
-KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH no)"
+KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ALPINE_ELASTICSEARCH "$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH no)")"
 # Admin password: prefer the OS .env file (source of truth for the cluster)
 OS_ADMIN_PASS="$(_env_val "${OPENSEARCH_DIR}/.env" OPENSEARCH_INITIAL_ADMIN_PASSWORD \
   "$(_env_val "${KOHA_ENV_FILE}" OPENSEARCH_INITIAL_ADMIN_PASSWORD 'changeme')")"
@@ -98,7 +98,7 @@ reload_runtime_config() {
   KOHA_USER="$(_env_val "${KOHA_ENV_FILE}" KOHA_USER "${KOHA_USER}")"
   KOHA_PASS="$(_env_val "${KOHA_ENV_FILE}" KOHA_PASS "${KOHA_PASS}")"
   KOHA_DB_ROOT_PASSWORD="$(_env_val "${KOHA_ENV_FILE}" KOHA_DB_ROOT_PASSWORD "${KOHA_DB_ROOT_PASSWORD}")"
-  KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH "${KOHA_ELASTICSEARCH}")"
+  KOHA_ELASTICSEARCH="$(_env_val "${KOHA_ENV_FILE}" KOHA_ALPINE_ELASTICSEARCH "$(_env_val "${KOHA_ENV_FILE}" KOHA_ELASTICSEARCH "${KOHA_ELASTICSEARCH}")")"
   KOHA_ELASTIC_OPTIONS="$(_env_val "${KOHA_ENV_FILE}" ELASTIC_OPTIONS "${KOHA_ELASTIC_OPTIONS}")"
   LOAD_DEMO_DATA="$(_env_val "${KOHA_ENV_FILE}" LOAD_DEMO_DATA "${LOAD_DEMO_DATA}")"
   SYNC_REPO="$(_env_val "${KOHA_ENV_FILE}" SYNC_REPO "${SYNC_REPO}")"
@@ -195,8 +195,9 @@ configure_koha_languages() {
 
   log "Language list from env/.env: ${normalized_languages}"
 
-  local -a languages
-  local -a install_languages
+  local -a languages=()
+  local -a install_languages=()
+  local -a failed_languages=()
   local lang
   IFS=',' read -r -a languages <<<"${normalized_languages}"
   for lang in "${languages[@]}"; do
@@ -215,13 +216,30 @@ configure_koha_languages() {
       fi
 
       log "Installing translation pack: ${lang}"
-      koha_compose exec -T koha bash -lc "export KOHA_CONF=/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml PERL5LIB=\"/kohadevbox/koha:/kohadevbox/koha/lib:\${PERL5LIB}\"; cd /kohadevbox/koha/misc/translator && ./translate install ${lang}"
+      if ! koha_compose exec -T koha bash -lc "export KOHA_CONF=/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml PERL5LIB=\"/kohadevbox/koha:/kohadevbox/koha/lib:\${PERL5LIB}\"; cd /kohadevbox/koha/misc/translator && ./translate install ${lang}"; then
+        warn "Translation install failed for ${lang}; continuing startup. Check Perl module dependencies in container (e.g. Locale::PO)."
+        failed_languages+=("${lang}")
+      fi
     done
   else
     log "No extra translation packs requested (only 'en')."
   fi
 
+  if (( ${#failed_languages[@]} > 0 )); then
+    warn "Some translation packs failed to install: ${failed_languages[*]}"
+  fi
+
   log "Applying language preferences to database (${DB_NAME})"
+  local _has_systempreferences
+  _has_systempreferences="$(docker exec "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" \
+    --batch --skip-column-names -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}' AND table_name='systempreferences';" 2>/dev/null || echo 0)"
+
+  if [[ "${_has_systempreferences}" != "1" ]]; then
+    warn "Skipping language DB updates for now: ${DB_NAME}.systempreferences is not available yet."
+    warn "Run './$(basename "$0") start --no-fresh-db --no-logs' again after bootstrap to apply language preferences."
+    return 0
+  fi
+
   docker exec "${DB_CONTAINER}" mysql -uroot -p"${KOHA_DB_ROOT_PASSWORD}" "${DB_NAME}" -e "
 UPDATE systempreferences SET value='${normalized_languages}' WHERE variable='StaffInterfaceLanguages';
 UPDATE systempreferences SET value='${normalized_languages}' WHERE variable='OPACLanguages';
@@ -605,7 +623,7 @@ wait_db_ready() {
     sleep 2
   done
   echo ""
-  die "MariaDB did not become ready after $(( max * 2 )) seconds. Check KOHA_DB_ROOT_PASSWORD in env/.env. If koha-db-data already exists from an older password, run './stack.sh reset' (destructive) or restore the old password in env/.env."
+  die "MariaDB did not become ready after $(( max * 2 )) seconds. Check KOHA_DB_ROOT_PASSWORD in env/.env. If koha-db-data already exists from an older password, run './$(basename "$0") reset' (destructive) or restore the old password in env/.env."
 }
 
 reset_database() {
@@ -667,7 +685,7 @@ restore_backup_bundle() {
   hdr "Restoring backup bundle"
 
   local archive_path stage_dir
-  [[ -n "${RESTORE_ARCHIVE}" ]] || die "restore requires a backup archive path. Use: ./stack.sh restore /path/to/koha-backup.tar.gz"
+  [[ -n "${RESTORE_ARCHIVE}" ]] || die "restore requires a backup archive path. Use: ./$(basename "$0") restore /path/to/koha-backup.tar.gz"
   archive_path="${RESTORE_ARCHIVE}"
   [[ -f "${archive_path}" ]] || die "Backup archive not found: ${archive_path}"
 
@@ -777,7 +795,7 @@ reset_all() {
 start_koha() {
   hdr "Starting Koha container"
   # Export LOAD_DEMO_DATA so Docker Compose picks it up via the environment: block
-  # in docker-compose.yml, overriding whatever is in env/.env at this point.
+  # in docker-compose-alpinekoha.yml, overriding whatever is in env/.env at this point.
   export LOAD_DEMO_DATA
   local demo_label; demo_label="$( [[ "${LOAD_DEMO_DATA}" == "no" ]] && echo "clean (no demo data)" || echo "with demo data" )"
   log "Demo data mode: ${demo_label}"
@@ -860,7 +878,7 @@ show_status() {
 usage() {
   cat <<EOF
 
-${BOLD}stack.sh${RESET} — Manage the Koha ILS + OpenSearch 3.6 + MariaDB stack
+${BOLD}stack-alpine.sh${RESET} — Manage the Alpine Koha stack + optional OpenSearch/Traefik services
 
 ${BOLD}Usage:${RESET}
   $(basename "$0") <command> [options]
@@ -1000,7 +1018,7 @@ esac
 
 echo ""
 echo -e "${BOLD}${CYAN}╔════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}${CYAN}║   Koha + OpenSearch Stack Manager  ║${RESET}"
+echo -e "${BOLD}${CYAN}║   Alpine Koha Stack Manager        ║${RESET}"
 echo -e "${BOLD}${CYAN}╚════════════════════════════════════╝${RESET}"
 echo ""
 
@@ -1033,12 +1051,12 @@ case "${COMMAND}" in
         echo ""
         warn "Database '${DB_NAME}' already contains Koha data."
         warn "Proceeding will DROP and recreate it — ALL DATA WILL BE PERMANENTLY LOST."
-        warn "To resume without wiping, press n and run:  ./stack.sh start --no-fresh-db"
+        warn "To resume without wiping, press n and run:  ./$(basename "$0") start --no-fresh-db"
         echo ""
         read -rp "$(echo -e "${RED}Type 'yes' to wipe the database and continue, or anything else to cancel:${RESET} ")" _confirm
         echo ""
         if [[ "${_confirm}" != "yes" ]]; then
-          log "Start cancelled. Resume with existing data: ./stack.sh start --no-fresh-db"
+          log "Start cancelled. Resume with existing data: ./$(basename "$0") start --no-fresh-db"
           exit 0
         fi
       fi
@@ -1047,7 +1065,7 @@ case "${COMMAND}" in
     else
       # Tell run.sh the DB already has data — skip the probe and the fresh-install
       # path in do_all_you_can_do.pl.  Docker Compose picks this up via the
-      # environment: section in docker-compose.yml (USE_EXISTING_DB: ${USE_EXISTING_DB}).
+      # environment: section in docker-compose-alpinekoha.yml (USE_EXISTING_DB: ${USE_EXISTING_DB}).
       export USE_EXISTING_DB=yes
       log "--no-fresh-db: USE_EXISTING_DB=yes exported to Koha container"
     fi

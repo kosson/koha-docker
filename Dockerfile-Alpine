@@ -43,6 +43,8 @@ RUN apk add --no-cache \
     lsb-release \
     mariadb-client \
     memcached \
+    musl-locales \
+    musl-locales-lang \
     netcat-openbsd \
     nodejs \
     npm \
@@ -95,6 +97,7 @@ RUN apk add --no-cache \
     shadow \
     sudo \
     ttf-dejavu \
+    tzdata \
     unzip \
     wget \
     xmlstarlet
@@ -102,6 +105,9 @@ RUN apk add --no-cache \
 RUN npm install -g yarn gulp-cli
 
 RUN cpanm --notest Modern::Perl
+
+# Alpine 3.24 lacks a packaged Locale::PO required by Koha translator tooling.
+RUN cpanm --notest Locale::PO
 
 # Alpine 3.24 lacks a packaged Struct::Diff; install from CPAN for Koha logging.
 RUN cpanm --notest Struct::Diff
@@ -169,6 +175,9 @@ RUN cpanm --notest Email::Stuffer
 # Alpine 3.24 lacks packaged Lingua::Stem.
 RUN cpanm --notest Lingua::Stem
 
+# Alpine 3.24 lacks packaged Lingua::Stem::Snowball.
+RUN cpanm --notest Lingua::Stem::Snowball
+
 # Alpine 3.24 lacks a packaged Search::Elasticsearch.
 RUN cpanm --notest Search::Elasticsearch
 
@@ -183,6 +192,153 @@ RUN mkdir -p /usr/local/share/perl5/site_perl \
 package ZOOM;
 
 our $VERSION = '0.00-alpine-shim';
+
+sub import {
+    my $caller = caller;
+    no strict 'refs';
+    *{"${caller}::create"} = \&create;
+}
+
+sub create {
+    my ($obj) = @_;
+    return $obj;
+}
+
+sub Connection {
+    my ($options) = @_;
+    return ZOOM::Connection->new($options);
+}
+
+sub event {
+    return 0;
+}
+
+package ZOOM::Options;
+
+sub new {
+    my ($class) = @_;
+    return bless { options => {} }, $class;
+}
+
+sub option {
+    my ( $self, $key, $value ) = @_;
+    $self->{options}->{$key} = $value;
+    return 1;
+}
+
+package ZOOM::Connection;
+
+sub new {
+    my ( $class, $options ) = @_;
+    return bless {
+        options    => $options,
+        last_event => 11,
+    }, $class;
+}
+
+sub connect {
+    return 1;
+}
+
+sub errcode {
+    return 0;
+}
+
+sub errmsg {
+    return '';
+}
+
+sub search {
+    return ZOOM::ResultSet->new();
+}
+
+sub scan {
+    return ZOOM::ResultSet->new();
+}
+
+sub last_event {
+    my ($self) = @_;
+    return $self->{last_event};
+}
+
+sub destroy {
+    return 1;
+}
+
+package ZOOM::ResultSet;
+
+sub new {
+    my ($class) = @_;
+    return bless {}, $class;
+}
+
+sub size {
+    return 0;
+}
+
+sub sort {
+    return 0;
+}
+
+sub record {
+    return ZOOM::Record->new();
+}
+
+sub display_term {
+    return ( '', 0 );
+}
+
+sub destroy {
+    return 1;
+}
+
+package ZOOM::Record;
+
+sub new {
+    my ($class) = @_;
+    return bless {}, $class;
+}
+
+sub raw {
+    return '';
+}
+
+package ZOOM::Query::CCL2RPN;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Query::CQL;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Query::PQF;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Event;
+
+use constant {
+    ZOOM_EVENT_CONNECT => 1,
+    ZOOM_EVENT_SEND_DATA => 2,
+    ZOOM_EVENT_RECV_DATA => 3,
+    ZOOM_EVENT_TIMEOUT => 4,
+    ZOOM_EVENT_UNKNOWN => 5,
+    ZOOM_EVENT_ACCEPT => 6,
+    ZOOM_EVENT_CONNECT_LOST => 7,
+    ZOOM_EVENT_SEND_APDU => 8,
+    ZOOM_EVENT_RECV_APDU => 9,
+    ZOOM_EVENT_RECV_RECORD => 10,
+    ZEND => 11,
+};
 
 1;
 EOF
@@ -434,6 +590,8 @@ WORKDIR /kohadevbox
 VOLUME /kohadevbox/koha
 
 COPY files-alpine/run.sh /kohadevbox/
+COPY apply-patches.sh /kohadevbox/
+COPY patches /kohadevbox/patches
 COPY files-alpine/lib /kohadevbox/lib
 COPY files-alpine/templates /kohadevbox/templates
 COPY files-alpine/git_hooks /kohadevbox/git_hooks
@@ -442,9 +600,10 @@ COPY env/defaults.env /kohadevbox/templates/defaults.env
 
 # Ensure Linux line endings even when the repository is checked out or edited with CRLF.
 RUN sed -i 's/\r$//' /kohadevbox/run.sh \
+    && sed -i 's/\r$//' /kohadevbox/apply-patches.sh \
     && find /kohadevbox/templates -type f -exec sed -i 's/\r$//' {} + \
     && find /kohadevbox/git_hooks -type f -exec sed -i 's/\r$//' {} + \
-    && chmod +x /kohadevbox/run.sh
+    && chmod +x /kohadevbox/run.sh /kohadevbox/apply-patches.sh
 
 # Helper repositories used by the Koha development workflow.
 RUN cd /kohadevbox \

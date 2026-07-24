@@ -29,3 +29,6 @@ backups/
 # Obsidian repo settings and artifacts
 docs/.obsidian
 docs/TrackerBaseObsidianSpecific.base
+
+# Ignore the artifacts resulting from testing.
+tests/artifacts/

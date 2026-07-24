@@ -393,6 +393,11 @@ if [ "${USE_EXISTING_DB}" = "yes" ]; then
     USE_EXISTING_DB_FLAG="--use-existing-db"
 fi
 
+if [ "${APPLY_KOHA_PATCHES:-no}" = "yes" ] && [ -x "${BUILD_DIR}/apply-patches.sh" ]; then
+    echo "[patches] Applying compatibility patches"
+    KOHA_PATCH_TARGET_DIR="${BUILD_DIR}/koha" "${BUILD_DIR}/apply-patches.sh"
+fi
+
 # LOAD_DEMO_DATA: 'yes' (default) loads sample MARC bibliographic records, authority
 # records, items, and patron data via misc4dev/insert_data.pl.
 # Set LOAD_DEMO_DATA=no for a clean install with only the superlibrarian account.

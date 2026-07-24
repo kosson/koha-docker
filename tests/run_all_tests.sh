@@ -29,6 +29,7 @@ SUITES=(
     "${TESTS_DIR}/test_run_sh_static.sh"
     "${TESTS_DIR}/test_db_detection_unit.sh"
     "${TESTS_DIR}/test_restart_integration.sh"
+    "${TESTS_DIR}/test_alpine_startup_smoke.sh"
 )
 
 SUITE_LABELS=(
@@ -36,6 +37,7 @@ SUITE_LABELS=(
     "Static analysis         (files/run.sh)"
     "Unit tests              (mock mysql)"
     "Integration test        (Docker restart)"
+    "Integration smoke       (Alpine startup/runtime)"
 )
 
 overall_pass=0

@@ -3,7 +3,7 @@ services:
         image: ${DB_IMAGE:-mariadb:10.11}
         command:
             - "--sql-mode=${DB_SQL_MODE:-STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION}"
-            - "--ssl=OFF"
+            - "--ssl=ON"
         restart: always
         environment:
             MYSQL_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
@@ -77,7 +77,13 @@ services:
             MANA_URL: ${MANA_URL}
             LOAD_DEMO_DATA: ${LOAD_DEMO_DATA:-yes}
             USE_EXISTING_DB: ${USE_EXISTING_DB:-}
+            ALPINE_BOOTSTRAP_PROFILE: ${ALPINE_BOOTSTRAP_PROFILE:-resume}
+            RUN_DB_POPULATION_ON_EXISTING_DB: ${RUN_DB_POPULATION_ON_EXISTING_DB:-}
             KOHA_DB_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
+            KOHA_DB_USE_TLS: ${KOHA_DB_USE_TLS:-yes}
+            KOHA_DB_TLS_CA_CERTIFICATE: ${KOHA_DB_TLS_CA_CERTIFICATE:-/etc/mysql/ssl/ca-cert.pem}
+            KOHA_DB_TLS_CLIENT_CERTIFICATE: ${KOHA_DB_TLS_CLIENT_CERTIFICATE:-}
+            KOHA_DB_TLS_CLIENT_KEY: ${KOHA_DB_TLS_CLIENT_KEY:-}
             MESSAGE_BROKER_HOST: ${MESSAGE_BROKER_HOST:-rabbitmq}
             MESSAGE_BROKER_PORT: ${MESSAGE_BROKER_PORT:-61613}
             MESSAGE_BROKER_USER: ${KOHA_RABBITMQ_USER:-koha}
