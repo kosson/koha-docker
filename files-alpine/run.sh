@@ -1,14 +1,16 @@
 #!/bin/bash
 # run.sh — Koha container entrypoint.
-# NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files/run.sh).
+# NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files-alpine/run.sh).
 # Editing this file on the host has NO effect until the image is rebuilt:
 #   ./stack.sh start -b   (or docker compose build)
-# RUN_SH_VERSION=2026-06-04
+# RUN_SH_VERSION=2026-07-22
 
 set -e
+trap 'rc=$?; echo "[run.sh] ERROR line ${LINENO}: ${BASH_COMMAND} (exit ${rc})" >&2' ERR
 
 export BUILD_DIR=/kohadevbox
 export TEMP=/tmp
+export TZ=${TZ:-UTC}
 
 # Handy variables
 export KOHA_INTRANET_FQDN=${KOHA_INTRANET_PREFIX}${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}
@@ -49,6 +51,8 @@ export PATH=${PATH}:/kohadevbox/bin:/kohadevbox/koha/node_modules/.bin/:/kohadev
 # Node stuff
 export NODE_PATH=/kohadevbox/node_modules:$NODE_PATH
 
+. /kohadevbox/lib/run-sh-alpine.sh
+
 if [ "${DEBUG_RUN}" = "yes" ]; then
     echo "DEBUG_RUN_URL=$DEBUG_RUN_URL";
     wget ${DEBUG_RUN_URL} -O /tmp/run.sh
@@ -69,9 +73,12 @@ fi
 # Latest Depends
 if [ "${CPAN}" = "yes" ]; then
     echo "Installing latest versions of dependancies from cpan"
-    apt update
-    apt install -y cpanoutdated
-    cpan-outdated --exclude-core -p | cpanm
+    if command -v cpan-outdated >/dev/null 2>&1; then
+        cpan-outdated --exclude-core -p | cpanm
+    else
+        echo "[cpan] cpan-outdated not available; falling back to cpanm --installdeps"
+        cpanm --skip-installed --installdeps ${BUILD_DIR}/koha/
+    fi
 fi
 
 # Install everything in Koha's cpanfile, may include libs for extra patches being tested
@@ -80,9 +87,8 @@ if [ "${INSTALL_MISSING_FROM_CPANFILE}" = "yes" ]; then
 fi
 
 if [ -n "${EXTRA_APT}" ]; then
-    echo "Installing requested packages using apt: ${EXTRA_APT}"
-    apt update
-    apt install -y ${EXTRA_APT}
+    echo "Installing requested OS packages using the local package manager: ${EXTRA_APT}"
+    install_os_packages ${EXTRA_APT}
 fi
 
 if [ -n "${EXTRA_CPAN}" ]; then
@@ -90,23 +96,13 @@ if [ -n "${EXTRA_CPAN}" ]; then
     cpanm --skip-installed ${EXTRA_CPAN}
 fi
 
-append_if_absent()
-{
-    local string=$1
-    local file=$2
-
-    if ! grep -Fxq "$string" "$file"; then
-        echo $string >> $file
-    fi
-}
-
 append_if_absent "127.0.0.1 kohadevbox" /etc/hosts
 hostname kohadevbox
 
 
 # Remove packages for developers if it's a Jenkins run (CI_RUN=1)
 if [ "${CI_RUN}" = "yes" ]; then
-    apt-get -y remove \
+    remove_os_packages \
       libcarp-always-perl \
       libgit-repository-perl \
       libmemcached-tools \
@@ -119,7 +115,7 @@ if [ "${CI_RUN}" = "yes" ]; then
 fi
 
 # debug failing apache --restart
-sudo service --status-all
+service_status_all
 
 # Clone before calling cp_debian_files.pl
 if [ "${DEBUG_GIT_REPO_MISC4DEV}" = "yes" ]; then
@@ -133,17 +129,20 @@ if [ "${DEBUG_GIT_REPO_QATESTTOOLS}" = "yes" ]; then
 fi
 
 # Make sure we use the files from the git clone for creating the instance
-perl ${BUILD_DIR}/misc4dev/cp_debian_files.pl \
-            --instance          ${KOHA_INSTANCE} \
-            --koha_dir          ${BUILD_DIR}/koha \
-            --gitify_dir        ${BUILD_DIR}/gitify
+copy_runtime_files
 
 # Wait for the DB server startup
 while ! nc -z db 3306; do sleep 1; done
 
+ensure_runtime_dirs
+
 export DB_NAME="koha_${KOHA_INSTANCE}"
 export DB_PASSWORD=${KOHA_DB_PASSWORD}
 export DB_USER="koha_${KOHA_INSTANCE}"
+export KOHA_DB_USE_TLS=${KOHA_DB_USE_TLS:-yes}
+export KOHA_DB_TLS_CA_CERTIFICATE=${KOHA_DB_TLS_CA_CERTIFICATE:-/etc/mysql/ssl/ca-cert.pem}
+export KOHA_DB_TLS_CLIENT_CERTIFICATE=${KOHA_DB_TLS_CLIENT_CERTIFICATE:-}
+export KOHA_DB_TLS_CLIENT_KEY=${KOHA_DB_TLS_CLIENT_KEY:-}
 
 # TODO: Have bugs pushed so all this is a koha-create parameter
 echo "${KOHA_INSTANCE}:${DB_USER}:${DB_PASSWORD}:${DB_NAME}" > /etc/koha/passwd
@@ -152,17 +151,51 @@ echo "[client]"                              > /etc/mysql/koha-common.cnf
 echo "host     = ${DB_HOSTNAME}"            >> /etc/mysql/koha-common.cnf
 echo "user     = root"                      >> /etc/mysql/koha-common.cnf
 echo "password = ${KOHA_DB_ROOT_PASSWORD}"  >> /etc/mysql/koha-common.cnf
+if [ "${KOHA_DB_USE_TLS}" = "yes" ]; then
+    echo "ssl      = on"                        >> /etc/mysql/koha-common.cnf
+    if [ -n "${KOHA_DB_TLS_CA_CERTIFICATE}" ]; then
+        echo "ssl-ca   = ${KOHA_DB_TLS_CA_CERTIFICATE}" >> /etc/mysql/koha-common.cnf
+    fi
+    if [ -n "${KOHA_DB_TLS_CLIENT_CERTIFICATE}" ]; then
+        echo "ssl-cert = ${KOHA_DB_TLS_CLIENT_CERTIFICATE}" >> /etc/mysql/koha-common.cnf
+    fi
+    if [ -n "${KOHA_DB_TLS_CLIENT_KEY}" ]; then
+        echo "ssl-key  = ${KOHA_DB_TLS_CLIENT_KEY}" >> /etc/mysql/koha-common.cnf
+    fi
+else
+    echo "ssl      = off"                       >> /etc/mysql/koha-common.cnf
+    echo "skip-ssl"                             >> /etc/mysql/koha-common.cnf
+fi
+cp /etc/mysql/koha-common.cnf /etc/mysql/debian.cnf
+chmod 600 /etc/mysql/debian.cnf
 
 
 echo "[client]"                          > /etc/mysql/koha_${KOHA_INSTANCE}.cnf
 echo "host     = ${DB_HOSTNAME}"        >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
 echo "user     = ${DB_USER}"            >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
 echo "password = ${DB_PASSWORD}"        >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+if [ "${KOHA_DB_USE_TLS}" = "yes" ]; then
+    echo "ssl      = on"                    >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+    if [ -n "${KOHA_DB_TLS_CA_CERTIFICATE}" ]; then
+        echo "ssl-ca   = ${KOHA_DB_TLS_CA_CERTIFICATE}" >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+    fi
+    if [ -n "${KOHA_DB_TLS_CLIENT_CERTIFICATE}" ]; then
+        echo "ssl-cert = ${KOHA_DB_TLS_CLIENT_CERTIFICATE}" >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+    fi
+    if [ -n "${KOHA_DB_TLS_CLIENT_KEY}" ]; then
+        echo "ssl-key  = ${KOHA_DB_TLS_CLIENT_KEY}" >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+    fi
+else
+    echo "ssl      = off"                   >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+    echo "skip-ssl"                         >> /etc/mysql/koha_${KOHA_INSTANCE}.cnf
+fi
 
 # Get rid of Apache warnings
-append_if_absent "ServerName kohadevbox"        /etc/apache2/apache2.conf
-append_if_absent "Listen ${KOHA_INTRANET_PORT}" /etc/apache2/ports.conf
-append_if_absent "Listen ${KOHA_OPAC_PORT}"     /etc/apache2/ports.conf
+if [ -f /etc/apache2/httpd.conf ]; then
+    append_if_absent "ServerName kohadevbox"        /etc/apache2/httpd.conf
+    append_if_absent "Listen ${KOHA_INTRANET_PORT}" /etc/apache2/httpd.conf
+    append_if_absent "Listen ${KOHA_OPAC_PORT}"     /etc/apache2/httpd.conf
+fi
 
 # Pull the names of the environment variables to substitute from defaults.env and convert them to a string of the format "$VAR1:$VAR2:$VAR3", etc.
 # grep filters out blank lines and comment lines (lines starting with #) so that
@@ -184,24 +217,88 @@ envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/bin/dbic > ${BUILD_DIR}/bin/dbi
 envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/bin/flush_memcached > ${BUILD_DIR}/bin/flush_memcached
 envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/bin/bisect_with_test > ${BUILD_DIR}/bin/bisect_with_test
 
-LSB_RELEASE=$(lsb_release -s -c 2> /dev/null)
-# Distro specific workarounds
-if [ "${LSB_RELEASE}" = "trixie" ]; then
-    echo "[client]"  >> /etc/mysql/my.cnf
-    echo "ssl = off" >> /etc/mysql/my.cnf
+# Alpine does not need the Debian trixie MySQL SSL workaround.
+if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    if [ "${ID:-}" = "debian" ] && [ "${VERSION_CODENAME:-}" = "trixie" ] && [ -f /etc/mysql/my.cnf ]; then
+        echo "[client]"  >> /etc/mysql/my.cnf
+        echo "ssl = off" >> /etc/mysql/my.cnf
+    fi
 fi
 
 # Make sure things are executable on /bin.
 chmod +x ${BUILD_DIR}/bin/*
 
 cd ${BUILD_DIR}
-koha-create --request-db ${KOHA_INSTANCE} \
-    --memcached-servers memcached:11211 \
-    --mb-host ${MESSAGE_BROKER_HOST} \
-    --mb-port ${MESSAGE_BROKER_PORT} \
-    --mb-user ${MESSAGE_BROKER_USER} \
-    --mb-pass ${MESSAGE_BROKER_PASS} \
-    --mb-vhost ${MESSAGE_BROKER_VHOST}
+bootstrap_koha_instance
+
+# Keep koha-conf.xml TLS flags aligned with the selected runtime mode.
+KOHA_SITE_CONF="/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml"
+if [ -f "${KOHA_SITE_CONF}" ]; then
+    # Remove legacy non-standard TLS tags if present.
+    sed -i '/<ssl_key>/d' "${KOHA_SITE_CONF}"
+    sed -i '/<ssl_cert>/d' "${KOHA_SITE_CONF}"
+
+    if [ "${KOHA_DB_USE_TLS}" = "yes" ]; then
+        if grep -q '<tls>' "${KOHA_SITE_CONF}"; then
+            sed -i 's#<tls>.*</tls>#<tls>yes</tls>#g' "${KOHA_SITE_CONF}"
+        else
+            sed -i 's#</pass>#</pass>\n <tls>yes</tls>#' "${KOHA_SITE_CONF}"
+        fi
+
+        if grep -q '<ca>' "${KOHA_SITE_CONF}"; then
+            sed -i "s#<ca>.*</ca>#<ca>${KOHA_DB_TLS_CA_CERTIFICATE}</ca>#g" "${KOHA_SITE_CONF}"
+        else
+            sed -i "s#</tls>#</tls>\n <ca>${KOHA_DB_TLS_CA_CERTIFICATE}</ca>#" "${KOHA_SITE_CONF}"
+        fi
+
+        if [ -n "${KOHA_DB_TLS_CLIENT_CERTIFICATE}" ]; then
+            if grep -q '<cert>' "${KOHA_SITE_CONF}"; then
+                sed -i "s#<cert>.*</cert>#<cert>${KOHA_DB_TLS_CLIENT_CERTIFICATE}</cert>#g" "${KOHA_SITE_CONF}"
+            else
+                sed -i "s#</ca>#</ca>\n <cert>${KOHA_DB_TLS_CLIENT_CERTIFICATE}</cert>#" "${KOHA_SITE_CONF}"
+            fi
+        fi
+
+        if [ -n "${KOHA_DB_TLS_CLIENT_KEY}" ]; then
+            if grep -q '<key>' "${KOHA_SITE_CONF}"; then
+                sed -i "s#<key>.*</key>#<key>${KOHA_DB_TLS_CLIENT_KEY}</key>#g" "${KOHA_SITE_CONF}"
+            else
+                sed -i "s#</ca>#</ca>\n <key>${KOHA_DB_TLS_CLIENT_KEY}</key>#" "${KOHA_SITE_CONF}"
+            fi
+        fi
+
+        export MYSQL_OPT_SKIP_SSL=0
+        export PERL_DBD_MYSQL_SSL_VERIFY_SERVER_CERT=0
+    else
+        if grep -q '<tls>' "${KOHA_SITE_CONF}"; then
+            sed -i 's#<tls>.*</tls>#<tls>no</tls>#g' "${KOHA_SITE_CONF}"
+        else
+            sed -i 's#</pass>#</pass>\n <tls>no</tls>#' "${KOHA_SITE_CONF}"
+        fi
+
+        # Remove TLS material if explicit non-TLS mode is requested.
+        sed -i '/<ca>/d' "${KOHA_SITE_CONF}"
+        sed -i '/<cert>/d' "${KOHA_SITE_CONF}"
+        sed -i '/<key>/d' "${KOHA_SITE_CONF}"
+
+        export MYSQL_OPT_SKIP_SSL=1
+        export PERL_DBD_MYSQL_SSL_VERIFY_SERVER_CERT=0
+    fi
+fi
+
+# Some koha-create runs can leave the instance DB user with SSL required.
+# Clear SSL requirements for all host entries of the instance user so the
+# selected runtime mode (TLS or non-TLS) is not blocked by stale account state.
+_db_hosts=$(mysql --defaults-file=/etc/mysql/koha-common.cnf --batch --skip-column-names \
+    -e "SELECT Host FROM mysql.user WHERE User='${DB_USER}'" 2>/dev/null || true)
+if [ -n "${_db_hosts}" ]; then
+    for _h in ${_db_hosts}; do
+        mysql --defaults-file=/etc/mysql/koha-common.cnf \
+            -e "ALTER USER '${DB_USER}'@'${_h}' REQUIRE NONE;" 2>/dev/null || true
+    done
+fi
+unset _db_hosts _h
 
 envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/vimrc > /var/lib/koha/${KOHA_INSTANCE}/.vimrc
 chown "${KOHA_INSTANCE}-koha" "/var/lib/koha/${KOHA_INSTANCE}/.vimrc"
@@ -249,35 +346,7 @@ if [[ ! -z "${LOCAL_USER_ID}" && "${LOCAL_USER_ID}" != "1000" ]]; then
     chown -R "${KOHA_INSTANCE}-koha" ${BUILD_DIR}/qa-test-tools
 fi
 
-if [[ ${SKIP_L10N} != "yes" ]]; then
-    if [[ ! -z "$KOHA_IMAGE" && ! "$KOHA_IMAGE" =~ ^main ]]; then
-        l10n_branch=${KOHA_IMAGE:0:5}
-    else
-        l10n_branch="main"
-    fi
-
-    set +e
-
-    echo "[koha-l10n] Handling koha-l10n as requested"
-
-    if [ ! -d "$BUILD_DIR/koha/misc/translator/po" ]; then
-        echo "    [*] Cloning koha-l10n into misc/translator/po"
-        sudo koha-shell ${KOHA_INSTANCE} -c "\
-            git clone --depth 1 --branch ${l10n_branch} https://gitlab.com/koha-community/koha-l10n.git $BUILD_DIR/koha/misc/translator/po"
-    elif [ -d "$BUILD_DIR/koha/misc/translator/po/.git" ]; then
-        echo "    [*] Chowning po files (safety measure)"
-        chown -R "${KOHA_INSTANCE}-koha" "$BUILD_DIR/koha/misc/translator/po"
-        echo "    [*] Fetching koha-l10n"
-        sudo koha-shell ${KOHA_INSTANCE} -c "\
-            git config --global --add safe.directory $BUILD_DIR/koha/misc/translator/po ; \
-            git -C $BUILD_DIR/koha/misc/translator/po fetch origin ; \
-            git -C $BUILD_DIR/koha/misc/translator/po checkout -B ${l10n_branch} origin/${l10n_branch}"
-    fi
-
-    set -e
-else
-    echo "[koha-l10n] Skipping"
-fi
+sync_l10n
 
 echo "[API logging] Set TRACE to API log4perl config"
 sed -i 's/log4perl.logger.api = WARN, API/log4perl.logger.api = TRACE, API/' /etc/koha/sites/${KOHA_INSTANCE}/log4perl.conf \
@@ -285,65 +354,52 @@ sed -i 's/log4perl.logger.api = WARN, API/log4perl.logger.api = TRACE, API/' /et
   || echo "    [x] Error setting TRACE for the API log4perl configuration"
 
 echo "[git] Setting up Git on the instance user"
-echo "    [*] Generating /var/lib/koha/${KOHA_INSTANCE}/.gitconfig"
-sudo koha-shell ${KOHA_INSTANCE} -c "\
-    cp ${BUILD_DIR}/templates/gitconfig /var/lib/koha/${KOHA_INSTANCE}/.gitconfig"
-
-echo "    [*] General setup"
-sudo koha-shell ${KOHA_INSTANCE} -c "\
-    cd ${BUILD_DIR}/koha ; \
-    git config --global --add safe.directory ${BUILD_DIR}/koha ; \
-    git config --global user.name  \"${GIT_USER_NAME}\" ; \
-    git config --global user.email \"${GIT_USER_EMAIL}\" ; \
-    git config bz.default-tracker bugs.koha-community.org ; \
-    git config bz.default-product Koha ; \
-    git config --global bz-tracker.bugs.koha-community.org.path /bugzilla3 ; \
-    git config --global bz-tracker.bugs.koha-community.org.https true ; \
-    git config --global core.whitespace trailing-space,space-before-tab ; \
-    git config --global apply.whitespace fix ; \
-    git config --global bz-tracker.bugs.koha-community.org.bz-user     \"${GIT_BZ_USER}\" ; \
-    git config --global bz-tracker.bugs.koha-community.org.bz-password \"${GIT_BZ_PASSWORD}\" "
+setup_git_workflow
 
 GIT_BASE_DIR=${BUILD_DIR}/koha
 if [ "${GIT_WORKTREE_SOURCE}" != "" ]; then
     # Git worktree!
     echo "    [!] Detected worktree: pointing to '${GIT_WORKTREE_SOURCE}'"
     GIT_BASE_DIR=${GIT_WORKTREE_SOURCE}
-    sudo koha-shell ${KOHA_INSTANCE} -c "\
-        cd ${BUILD_DIR}/koha ; \
-        git config --global --add safe.directory ${GIT_WORKTREE_SOURCE}"
     echo "    [*] Added '${GIT_WORKTREE_SOURCE}' to safe directories"
 fi
 
-if [ "${GIT_WORKTREE_SOURCE}" != "" ]; then
-    # Skip for worktrees
-    echo "    [!] Skipping hooks setup"
-else
-    echo "    [*] Installing and setting hooks (${GIT_BASE_DIR})"
-    sudo koha-shell ${KOHA_INSTANCE} -c "\
-        mkdir -p ${GIT_BASE_DIR}/.git/hooks/ktd ; \
-        cp ${BUILD_DIR}/git_hooks/* ${GIT_BASE_DIR}/.git/hooks/ktd ; \
-        cd ${GIT_BASE_DIR} ; \
-        git config --local core.hooksPath .git/hooks/ktd"
-fi
+install_git_hooks "${GIT_BASE_DIR}"
 
 # This needs to be done ONCE koha-create has run (i.e. kohadev-koha user exists)
 envsubst "$VARS_TO_SUB" < ${BUILD_DIR}/templates/apache2_envvars > /etc/apache2/envvars
 
 # gitify instance
 cd ${BUILD_DIR}/gitify
-./koha-gitify ${KOHA_INSTANCE} "/kohadevbox/koha"
+if [ -x ./koha-gitify ]; then
+    ./koha-gitify ${KOHA_INSTANCE} "/kohadevbox/koha"
+else
+    echo "[koha-gitify] WARNING: koha-gitify helper not available; skipping"
+fi
 cd ${BUILD_DIR}
 
-koha-enable ${KOHA_INSTANCE} 
-a2ensite ${KOHA_INSTANCE}.conf
+if command -v koha-enable >/dev/null 2>&1; then
+    koha-enable ${KOHA_INSTANCE}
+else
+    echo "[koha-enable] WARNING: koha-enable not available; skipping"
+fi
+
+if command -v a2ensite >/dev/null 2>&1; then
+    a2ensite ${KOHA_INSTANCE}.conf
+fi
 
 cp /kohadevbox/koha/package.json /kohadevbox
 cp /kohadevbox/koha/yarn.lock    /kohadevbox
 # Wipe possible residual directories from previous engine
 rm -rf /var/lib/koha/${KOHA_INSTANCE}/.cache/js-v8flags
 rm -rf /var/lib/koha/${KOHA_INSTANCE}/.cache/yarn
-yarn install --modules-folder /kohadevbox/node_modules
+if [ "${SKIP_YARN_INSTALL:-no}" = "yes" ]; then
+    echo "[yarn] SKIP_YARN_INSTALL=yes — skipping yarn install for bootstrap-first runtime"
+else
+    echo "[yarn] Running yarn install to /kohadevbox/koha/node_modules"
+    cd /kohadevbox/koha && yarn install
+    cd /
+fi
 
 # Update /etc/hosts so the www tests can run
 echo "127.0.0.1    ${KOHA_OPAC_FQDN} ${KOHA_INTRANET_FQDN}" >> /etc/hosts
@@ -393,11 +449,6 @@ if [ "${USE_EXISTING_DB}" = "yes" ]; then
     USE_EXISTING_DB_FLAG="--use-existing-db"
 fi
 
-if [ "${APPLY_KOHA_PATCHES:-no}" = "yes" ] && [ -x "${BUILD_DIR}/apply-patches.sh" ]; then
-    echo "[patches] Applying compatibility patches"
-    KOHA_PATCH_TARGET_DIR="${BUILD_DIR}/koha" "${BUILD_DIR}/apply-patches.sh"
-fi
-
 # LOAD_DEMO_DATA: 'yes' (default) loads sample MARC bibliographic records, authority
 # records, items, and patron data via misc4dev/insert_data.pl.
 # Set LOAD_DEMO_DATA=no for a clean install with only the superlibrarian account.
@@ -410,6 +461,17 @@ fi
 
 if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
     echo "[elasticsearch] Waiting for OpenSearch endpoint from Koha container..."
+
+    ES_ENDPOINT="${ELASTIC_SERVER:-os01:9200}"
+    ES_HOST="${ES_ENDPOINT%%:*}"
+    ES_PORT="${ES_ENDPOINT##*:}"
+    if [ -z "${ES_HOST}" ]; then
+        ES_HOST="os01"
+    fi
+    if [ -z "${ES_PORT}" ] || [ "${ES_PORT}" = "${ES_HOST}" ]; then
+        ES_PORT="9200"
+    fi
+    echo "[elasticsearch] Target endpoint: ${ES_HOST}:${ES_PORT}"
 
     # Determine which CA cert to use for TLS verification.
     _os_cacert_args=()
@@ -424,8 +486,8 @@ if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
     os_wait_ok="no"
     for attempt in $(seq 1 60); do
         # Quick TCP reachability check before attempting the full HTTPS request.
-        if ! nc -z -w 3 os01 9200 2>/dev/null; then
-            echo "[elasticsearch] attempt ${attempt}/60: TCP port os01:9200 not reachable"
+        if ! nc -z -w 3 "${ES_HOST}" "${ES_PORT}" 2>/dev/null; then
+            echo "[elasticsearch] attempt ${attempt}/60: TCP port ${ES_HOST}:${ES_PORT} not reachable"
             sleep 5
             continue
         fi
@@ -434,7 +496,7 @@ if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
             --connect-timeout 5 --max-time 10 \
             -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" \
             -w "\nHTTP_STATUS:%{http_code}" \
-            "https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=5s" 2>&1)
+            "https://${ES_HOST}:${ES_PORT}/_cluster/health?wait_for_status=yellow&timeout=5s" 2>&1)
 
         os_http_code=$(echo "${os_response}" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
         os_status=$(echo "${os_response}" \
@@ -465,45 +527,133 @@ fi
 find "${BUILD_DIR}/koha/misc/migration_tools" -type f -name '*.pl' \
     -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 
-if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
-    # misc4dev still forces a Zebra rebuild after successful ES indexing.
-    # On recent datasets this can fail on malformed legacy MARCXML and abort
-    # container startup, even though Elasticsearch setup already completed.
-    sed -i 's|\$cmd = "sudo koha-rebuild-zebra -f -v \$instance";|say "Skipping koha-rebuild-zebra in Elasticsearch mode";\n\$cmd = "true";|' \
-        "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
-
-    # Keep Elasticsearch rebuild but make it non-fatal.
-    # A stale index, mapping incompatibility, or missing index (common after a
-    # Koha upgrade or image switch) should NOT abort container startup — Koha
-    # remains functional, only searches may be incomplete.
-    # Append '; true' so the overall shell exit code is always 0, and redirect
-    # stderr to a file so we can print it after do_all_you_can_do.pl finishes.
-    sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr; true|"\
-        "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+if [ "${APPLY_KOHA_PATCHES:-no}" = "yes" ] && [ -x "${BUILD_DIR}/apply-patches.sh" ]; then
+    echo "[patches] Applying compatibility patches"
+    KOHA_PATCH_TARGET_DIR="${BUILD_DIR}/koha" "${BUILD_DIR}/apply-patches.sh"
 fi
 
-perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
-            --instance          ${KOHA_INSTANCE} ${ES_FLAG} ${USE_EXISTING_DB_FLAG} \
-            --userid            ${KOHA_USER} \
-            --password          ${KOHA_PASS} \
-            --marcflavour       ${KOHA_MARC_FLAVOUR} \
-            --koha_dir          ${BUILD_DIR}/koha \
-            --opac-base-url     ${KOHA_OPAC_URL} \
-            --intranet-base-url ${KOHA_INTRANET_URL} \
-            --gitify_dir        ${BUILD_DIR}/gitify
+RUN_DB_POPULATION="yes"
+# Explicit Alpine bootstrap profile:
+#   resume (default) -> fast startup on existing DB (skip full repopulation/reindex)
+#   full             -> force full do_all_you_can_do.pl path even on existing DB
+_bootstrap_profile="$(echo "${ALPINE_BOOTSTRAP_PROFILE:-resume}" | tr '[:upper:]' '[:lower:]')"
+case "${_bootstrap_profile}" in
+    full)
+        if [ -z "${RUN_DB_POPULATION_ON_EXISTING_DB:-}" ]; then
+            export RUN_DB_POPULATION_ON_EXISTING_DB=yes
+        fi
+        echo "[bootstrap-profile] full -> RUN_DB_POPULATION_ON_EXISTING_DB=${RUN_DB_POPULATION_ON_EXISTING_DB}"
+        ;;
+    resume|"")
+        if [ -z "${RUN_DB_POPULATION_ON_EXISTING_DB:-}" ]; then
+            export RUN_DB_POPULATION_ON_EXISTING_DB=no
+        fi
+        echo "[bootstrap-profile] resume -> RUN_DB_POPULATION_ON_EXISTING_DB=${RUN_DB_POPULATION_ON_EXISTING_DB}"
+        ;;
+    *)
+        echo "[bootstrap-profile] WARNING: invalid ALPINE_BOOTSTRAP_PROFILE='${ALPINE_BOOTSTRAP_PROFILE}' (expected 'resume' or 'full')"
+        echo "[bootstrap-profile] Falling back to resume behavior"
+        if [ -z "${RUN_DB_POPULATION_ON_EXISTING_DB:-}" ]; then
+            export RUN_DB_POPULATION_ON_EXISTING_DB=no
+        fi
+        ;;
+esac
 
-# Surface any Elasticsearch rebuild errors captured during do_all_you_can_do.pl.
-# The rebuild was made non-fatal above; print errors here so they appear in
-# 'docker compose logs' and the operator knows to investigate.
-if [ -s /tmp/rebuild_elasticsearch.stderr ]; then
-    echo "[elasticsearch] WARNING: Index rebuild encountered errors (startup continues):"
-    cat /tmp/rebuild_elasticsearch.stderr
-    echo "[elasticsearch] Koha is functional but searches may be incomplete."
-    echo "[elasticsearch] To retry: koha-shell ${KOHA_INSTANCE} -p -c 'perl ${BUILD_DIR}/koha/misc/search_tools/rebuild_elasticsearch.pl'"
+if [ "${USE_EXISTING_DB}" = "yes" ] && [ "${RUN_DB_POPULATION_ON_EXISTING_DB:-no}" != "yes" ]; then
+    RUN_DB_POPULATION="no"
+    echo "[db-population] Existing DB detected and RUN_DB_POPULATION_ON_EXISTING_DB!=yes"
+    echo "[db-population] Skipping do_all_you_can_do.pl to avoid long/blocking startup rebuilds"
+    echo "[db-population] Set RUN_DB_POPULATION_ON_EXISTING_DB=yes to force full population/rebuild"
 fi
+
+if [ "${RUN_DB_POPULATION}" = "yes" ]; then
+    if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
+        # misc4dev still forces a Zebra rebuild after successful ES indexing.
+        # On recent datasets this can fail on malformed legacy MARCXML and abort
+        # container startup, even though Elasticsearch setup already completed.
+        sed -i 's|\$cmd = "sudo koha-rebuild-zebra -f -v \$instance";|say "Skipping koha-rebuild-zebra in Elasticsearch mode";\n\$cmd = "true";|' \
+            "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+
+        # Keep Elasticsearch rebuild but make it non-fatal.
+        # A stale index, mapping incompatibility, or missing index (common after a
+        # Koha upgrade or image switch) should NOT abort container startup — Koha
+        # remains functional, only searches may be incomplete.
+        # Append '; true' so the overall shell exit code is always 0, and redirect
+        # stderr to a file so we can print it after do_all_you_can_do.pl finishes.
+        sed -i "s|perl \$rebuild_es_path -v'|perl \$rebuild_es_path' 2>/tmp/rebuild_elasticsearch.stderr; true|"\
+            "${BUILD_DIR}/misc4dev/do_all_you_can_do.pl"
+    fi
+
+    perl ${BUILD_DIR}/misc4dev/do_all_you_can_do.pl \
+                --instance          ${KOHA_INSTANCE} ${ES_FLAG} ${USE_EXISTING_DB_FLAG} \
+                --userid            ${KOHA_USER} \
+                --password          ${KOHA_PASS} \
+                --marcflavour       ${KOHA_MARC_FLAVOUR} \
+                --koha_dir          ${BUILD_DIR}/koha \
+                --opac-base-url     ${KOHA_OPAC_URL} \
+                --intranet-base-url ${KOHA_INTRANET_URL} \
+                --gitify_dir        ${BUILD_DIR}/gitify || {
+        echo "[db-population] WARNING: Database population failed (Perl compilation error detected)"
+        echo "[db-population] This is expected if Koha source has known issues (e.g., ZOOM::Event::ZEND bareword)"
+        echo "[db-population] Apache will still start and CGI execution is functional"
+        echo "[db-population] To retry: koha-shell ${KOHA_INSTANCE} -c 'perl /kohadevbox/misc4dev/do_all_you_can_do.pl ...'"
+    }
+
+    # Surface any Elasticsearch rebuild errors captured during do_all_you_can_do.pl.
+    # The rebuild was made non-fatal above; print errors here so they appear in
+    # 'docker compose logs' and the operator knows to investigate.
+    if [ -s /tmp/rebuild_elasticsearch.stderr ]; then
+        echo "[elasticsearch] WARNING: Index rebuild encountered errors (startup continues):"
+        cat /tmp/rebuild_elasticsearch.stderr
+        echo "[elasticsearch] Koha is functional but searches may be incomplete."
+        echo "[elasticsearch] To retry: koha-shell ${KOHA_INSTANCE} -p -c 'perl ${BUILD_DIR}/koha/misc/search_tools/rebuild_elasticsearch.pl'"
+    fi
+fi
+
+unset RUN_DB_POPULATION
+unset _bootstrap_profile
+
+# Alpine compatibility: Remove suexec-specific directives not supported in Alpine Apache
+echo "[alpine] Removing Debian-specific Apache suexec directives..."
+find /etc/apache2/sites-enabled -name "*.conf" -exec sed -i 's/^[[:space:]]*AssignUserID/# AssignUserID/' {} + 2>/dev/null || true
+
+# Alpine permissions fix: Make Koha config and cache directories accessible to Apache
+# Alpine Apache cannot use AssignUserID directive, so scripts run as 'apache' user
+# We need to make Koha data directories readable/writable by the apache user for CGI scripts to function
+echo "[alpine] Fixing permissions for Apache to access Koha directories..."
+if [ -d "/etc/koha/sites/${KOHA_INSTANCE}" ]; then
+    chmod 644 /etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml 2>/dev/null || true
+    chmod 644 /etc/koha/sites/${KOHA_INSTANCE}/log4perl.conf 2>/dev/null || true
+fi
+if [ -d "/var/cache/koha/${KOHA_INSTANCE}" ]; then
+    chmod 777 /var/cache/koha/${KOHA_INSTANCE} 2>/dev/null || true
+    find /var/cache/koha/${KOHA_INSTANCE} -type d -exec chmod 777 {} + 2>/dev/null || true
+fi
+if [ -d "/var/log/koha/${KOHA_INSTANCE}" ]; then
+    find /var/log/koha/${KOHA_INSTANCE} -type f -exec chmod 666 {} + 2>/dev/null || true
+    find /var/log/koha/${KOHA_INSTANCE} -type d -exec chmod 777 {} + 2>/dev/null || true
+fi
+
+# Alpine CGI support: Enable mod_cgi for CGI script execution
+# Alpine's httpd.conf has mod_cgi LoadModule commented out by default
+echo "[alpine] Enabling mod_cgi module for Perl CGI script execution..."
+sed -i 's/^[[:space:]]*#LoadModule cgi_module modules\/mod_cgi\.so/LoadModule cgi_module modules\/mod_cgi.so/' /etc/apache2/httpd.conf 2>/dev/null || true
+
+# Alpine CGI fix: Enable CGI script execution for .pl files in /kohadevbox/koha directory
+# The koha-create generated templates lack the necessary CGI handler directives for Alpine
+echo "[alpine] Enabling CGI execution for Perl scripts in /etc/koha/apache-shared-*-git.conf..."
+for _conf_file in /etc/koha/apache-shared-opac-git.conf /etc/koha/apache-shared-intranet-git.conf; do
+    if [ -f "${_conf_file}" ]; then
+        # Add Options and AddHandler directives inside the /kohadevbox/koha Directory block
+        # Match the pattern: <Directory "/kohadevbox/koha"> and Require all granted
+        # Insert Options and AddHandler before the closing </Directory>
+        sed -i '/<Directory "\/kohadevbox\/koha">/a\        Options +ExecCGI +FollowSymlinks\n        AddHandler cgi-script .pl' "${_conf_file}" 2>/dev/null || true
+    fi
+done
+unset _conf_file
 
 # Stop apache2
-service apache2 stop
+stop_apache_service
 
 # Apache CGI execution fails with "No such file or directory" when Perl scripts
 # carry CRLF shebangs (cross-platform repos). Normalize key web entry points
@@ -515,6 +665,14 @@ echo "[logs] Chowning logs"
 chown -R "${KOHA_INSTANCE}-koha:${KOHA_INSTANCE}-koha" "/var/log/koha/${KOHA_INSTANCE}" \
   && echo "    [*] Success chowning /var/log/koha/${KOHA_INSTANCE}" \
   || echo "    [x] Error chowning cache dir /var/log/koha/${KOHA_INSTANCE}"
+
+# Pre-create Koha CGI error logs with permissive mode so Apache/log4perl can
+# append regardless of runtime UID transitions during Alpine bootstrap.
+for _logf in opac-error.log intranet-error.log sip-error.log sip-output.log; do
+        touch "/var/log/koha/${KOHA_INSTANCE}/${_logf}" 2>/dev/null || true
+        chmod 666 "/var/log/koha/${KOHA_INSTANCE}/${_logf}" 2>/dev/null || true
+done
+unset _logf
 
 if [ "${ENABLE_PLUGINS}" = "yes" ]; then
 
@@ -539,7 +697,9 @@ if [ "${ENABLE_PLUGINS}" = "yes" ]; then
         counter=$((counter+1))
     done
 
-    flush_memcached
+    if command -v flush_memcached >/dev/null 2>&1; then
+        flush_memcached
+    fi
     # replace the placeholder with the plugins entries
     sed -i "s# <!--pluginsdir>YOUR_PLUGIN_DIR_HERE</pluginsdir-->#$(echo "$PLUGINS_STRING")#" /etc/koha/sites/kohadev/koha-conf.xml
     # run the plugins installer
@@ -547,14 +707,7 @@ if [ "${ENABLE_PLUGINS}" = "yes" ]; then
     echo "    [*] Plugins loaded!"
 fi
 
-# Enable and start koha-plack and koha-z3950-responder
-if ! koha-plack --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
-    echo "[INFO] koha-plack not enabled in this profile; continuing with Apache CGI mode"
-fi
-
-if ! koha-z3950-responder --enable ${KOHA_INSTANCE} >/dev/null 2>&1; then
-    echo "[INFO] koha-z3950-responder enable skipped; continuing"
-fi
+enable_instance_services
 
 # RabbitMQ now runs as an external sibling container. Wait for its STOMP port
 # before starting Koha workers so background jobs keep instant notifications.
@@ -574,10 +727,10 @@ else
 fi
 unset _stomp_ready _i
 
-service koha-common start 2>&1 | grep -v "you must provide at least one instance name" || true
+start_koha_service
 
 # Start apache2
-service apache2 start
+start_apache_service
 
 touch /ktd_ready
 echo "koha-testing-docker has started up and is ready to be enjoyed!"

@@ -220,6 +220,8 @@ RUN cd /kohadevbox \
 VOLUME /kohadevbox/koha
 
 COPY files/run.sh /kohadevbox/
+COPY apply-patches.sh /kohadevbox/
+COPY patches /kohadevbox/patches
 COPY files/templates /kohadevbox/templates
 COPY files/git_hooks /kohadevbox/git_hooks
 COPY env/defaults.env /kohadevbox/templates/defaults.env
@@ -227,9 +229,10 @@ COPY env/defaults.env /kohadevbox/templates/defaults.env
 # Ensure Linux line endings even when the repository is checked out or edited
 # with CRLF (cross-platform contributors). Safe to run unconditionally.
 RUN sed -i 's/\r$//' /kohadevbox/run.sh \
+    && sed -i 's/\r$//' /kohadevbox/apply-patches.sh \
     && find /kohadevbox/templates -type f -exec sed -i 's/\r$//' {} + \
     && find /kohadevbox/git_hooks  -type f -exec sed -i 's/\r$//' {} + \
-    && chmod +x /kohadevbox/run.sh
+    && chmod +x /kohadevbox/run.sh /kohadevbox/apply-patches.sh
 
 EXPOSE 6001 8080 8081
 

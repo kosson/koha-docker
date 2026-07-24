@@ -80,8 +80,11 @@ KOHA_INSTANCE=$(grep -E '^KOHA_INSTANCE=' "${ENV_FILE}" | head -1 | cut -d= -f2-
 DB_NAME="koha_${KOHA_INSTANCE}"
 DB_CONTAINER="$(basename "${REPO_ROOT}")-db-1"
 
+DB_ROOT_PASS="$(grep -E '^KOHA_DB_ROOT_PASSWORD=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+DB_ROOT_PASS="${DB_ROOT_PASS:-password}"
+
 tables=$(docker exec "${DB_CONTAINER}" \
-    mysql -uroot -ppassword "${DB_NAME}" \
+    mysql -uroot -p"${DB_ROOT_PASS}" "${DB_NAME}" \
     -sse "SELECT COUNT(*) FROM information_schema.tables
           WHERE table_schema='${DB_NAME}'
           AND table_name='systempreferences';" 2>/dev/null || echo 0)

@@ -1,0 +1,617 @@
+FROM alpine:3.24.1
+
+# File Author / Maintainer
+LABEL maintainer="kosson@gmail.com"
+
+ENV PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV REFRESHED_AT=2026-07-22T18:20:00Z
+
+# Alpine base packages for a Koha-oriented runtime and build environment.
+RUN apk add --no-cache \
+    apache2 \
+    apache2-utils \
+    bash \
+    bash-completion \
+    build-base \
+    perl-bytes-random-secure \
+    coreutils \
+    perl-business-isbn \
+    perl-business-issn \
+    perl-class-accessor \
+    perl-class-factory-util \
+    perl-cgi \
+    perl-cgi-session \
+    perl-class-inspector \
+    perl-app-cpanminus \
+    perl-crypt-cbc \
+    perl-crypt-eksblowfish \
+    curl \
+    docbook-xsl \
+    docbook-xsl-ns \
+    expat-dev \
+    findutils \
+    gawk \
+    gettext \
+    git \
+    grep \
+    libxml2 \
+    libxml2-utils \
+    libxslt \
+    libxslt-dev \
+    lsb-release \
+    mariadb-client \
+    memcached \
+    musl-locales \
+    musl-locales-lang \
+    netcat-openbsd \
+    nodejs \
+    npm \
+    openrc \
+    perl \
+    perl-dev \
+    perl-dbd-mysql \
+    perl-dbd-sqlite \
+    perl-dbi \
+    perl-datetime \
+    perl-date-calc \
+    perl-date-manip \
+    perl-datetime-format-builder \
+    perl-datetime-format-strptime \
+    perl-datetime-timezone \
+    perl-doc \
+    perl-email-address \
+    perl-email-messageid \
+    perl-email-mime \
+    perl-file-slurp \
+    perl-gd \
+    perl-html-scrubber \
+    perl-json \
+    perl-io-socket-ssl \
+    perl-libwww \
+    perl-list-moreutils \
+    perl-locale-gettext \
+    perl-log-log4perl \
+    perl-mojolicious \
+    perl-net-cidr \
+    perl-net-idn-encode \
+    perl-net-ssleay \
+    perl-parallel-forkmanager \
+    perl-params-validate \
+    perl-sereal-decoder \
+    perl-sereal-encoder \
+    perl-readonly \
+    perl-string-random \
+    perl-sub-name \
+    perl-template-toolkit \
+    perl-text-csv_xs \
+    perl-utils \
+    perl-xml-libxslt \
+    perl-xml-libxml \
+    perl-xml-simple \
+    perl-yaml-libyaml \
+    pwgen \
+    rabbitmq-server \
+    sed \
+    shadow \
+    sudo \
+    ttf-dejavu \
+    tzdata \
+    unzip \
+    wget \
+    xmlstarlet
+
+RUN npm install -g yarn gulp-cli
+
+RUN cpanm --notest Modern::Perl
+
+# Alpine 3.24 lacks a packaged Locale::PO required by Koha translator tooling.
+RUN cpanm --notest Locale::PO
+
+# Alpine 3.24 lacks a packaged Struct::Diff; install from CPAN for Koha logging.
+RUN cpanm --notest Struct::Diff
+
+# Alpine 3.24 lacks a packaged DateTime::Format::MySQL.
+RUN cpanm --notest DateTime::Format::MySQL
+
+# Alpine 3.24 lacks a packaged Locale::Currency::Format.
+RUN cpanm --notest Locale::Currency::Format
+
+# Alpine 3.24 lacks a packaged Array::Utils.
+RUN cpanm --notest Array::Utils
+
+# Alpine 3.24 lacks a packaged MARC::Record.
+RUN cpanm --notest MARC::Record
+
+# Alpine 3.24 lacks a packaged MARC::Record::MiJ.
+RUN cpanm --notest MARC::Record::MiJ
+
+# Alpine 3.24 lacks a packaged MARC::File::XML.
+RUN cpanm --notest MARC::File::XML
+
+# Alpine 3.24 lacks a packaged GD::Barcode.
+RUN cpanm --notest GD::Barcode
+
+# Alpine 3.24 lacks a packaged Auth::GoogleAuth.
+RUN cpanm --notest Auth::GoogleAuth
+
+# Alpine 3.24 lacks a packaged Number::Format.
+RUN cpanm --notest Number::Format
+
+# Alpine 3.24 lacks a packaged Algorithm::Munkres.
+RUN cpanm --notest Algorithm::Munkres
+
+# Alpine 3.24 lacks a packaged Net::Stomp.
+RUN cpanm --notest Net::Stomp
+
+# Alpine 3.24 lacks a packaged Mojolicious::Plugin::OAuth2.
+RUN cpanm --notest Mojolicious::Plugin::OAuth2
+
+# Alpine 3.24 lacks a packaged JSON::Validator.
+RUN cpanm --notest JSON::Validator
+
+# Alpine 3.24 lacks a packaged Text::Iconv.
+RUN cpanm --notest Text::Iconv
+
+# Alpine 3.24 lacks a packaged Algorithm::CheckDigits.
+RUN cpanm --notest Algorithm::CheckDigits
+
+# Alpine package set does not provide Locale::Messages for this image.
+RUN cpanm --notest Locale::Messages
+
+# Alpine 3.24 lacks a packaged DBIx::RunSQL.
+RUN cpanm --notest DBIx::RunSQL
+
+# Alpine 3.24 lacks a packaged WWW::CSRF.
+RUN cpanm --notest WWW::CSRF
+
+# Alpine 3.24 lacks a packaged Mojo::JWT.
+RUN cpanm --notest Mojo::JWT
+
+# Alpine 3.24 lacks packaged Email::Stuffer.
+RUN cpanm --notest Email::Stuffer
+
+# Alpine 3.24 lacks packaged Lingua::Stem.
+RUN cpanm --notest Lingua::Stem
+
+# Alpine 3.24 lacks packaged Lingua::Stem::Snowball.
+RUN cpanm --notest Lingua::Stem::Snowball
+
+# Alpine 3.24 lacks a packaged Search::Elasticsearch.
+RUN cpanm --notest Search::Elasticsearch
+
+# Alpine 3.24 lacks a packaged DBIx::Class.
+RUN cpanm --notest DBIx::Class
+
+# Alpine 3.24 repositories currently do not ship YAZ (yaz-config/libyaz-dev),
+# which prevents building Net::Z3950::ZOOM. Provide a minimal shim so Koha
+# bootstrap scripts can compile; Z39.50 functionality is tracked separately.
+RUN mkdir -p /usr/local/share/perl5/site_perl \
+    && cat >/usr/local/share/perl5/site_perl/ZOOM.pm <<'EOF'
+package ZOOM;
+
+our $VERSION = '0.00-alpine-shim';
+
+sub import {
+    my $caller = caller;
+    no strict 'refs';
+    *{"${caller}::create"} = \&create;
+}
+
+sub create {
+    my ($obj) = @_;
+    return $obj;
+}
+
+sub Connection {
+    my ($options) = @_;
+    return ZOOM::Connection->new($options);
+}
+
+sub event {
+    return 0;
+}
+
+package ZOOM::Options;
+
+sub new {
+    my ($class) = @_;
+    return bless { options => {} }, $class;
+}
+
+sub option {
+    my ( $self, $key, $value ) = @_;
+    $self->{options}->{$key} = $value;
+    return 1;
+}
+
+package ZOOM::Connection;
+
+sub new {
+    my ( $class, $options ) = @_;
+    return bless {
+        options    => $options,
+        last_event => 11,
+    }, $class;
+}
+
+sub connect {
+    return 1;
+}
+
+sub errcode {
+    return 0;
+}
+
+sub errmsg {
+    return '';
+}
+
+sub search {
+    return ZOOM::ResultSet->new();
+}
+
+sub scan {
+    return ZOOM::ResultSet->new();
+}
+
+sub last_event {
+    my ($self) = @_;
+    return $self->{last_event};
+}
+
+sub destroy {
+    return 1;
+}
+
+package ZOOM::ResultSet;
+
+sub new {
+    my ($class) = @_;
+    return bless {}, $class;
+}
+
+sub size {
+    return 0;
+}
+
+sub sort {
+    return 0;
+}
+
+sub record {
+    return ZOOM::Record->new();
+}
+
+sub display_term {
+    return ( '', 0 );
+}
+
+sub destroy {
+    return 1;
+}
+
+package ZOOM::Record;
+
+sub new {
+    my ($class) = @_;
+    return bless {}, $class;
+}
+
+sub raw {
+    return '';
+}
+
+package ZOOM::Query::CCL2RPN;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Query::CQL;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Query::PQF;
+
+sub new {
+    my ( $class, $query, $conn ) = @_;
+    return bless { query => $query, conn => $conn }, $class;
+}
+
+package ZOOM::Event;
+
+use constant {
+    ZOOM_EVENT_CONNECT => 1,
+    ZOOM_EVENT_SEND_DATA => 2,
+    ZOOM_EVENT_RECV_DATA => 3,
+    ZOOM_EVENT_TIMEOUT => 4,
+    ZOOM_EVENT_UNKNOWN => 5,
+    ZOOM_EVENT_ACCEPT => 6,
+    ZOOM_EVENT_CONNECT_LOST => 7,
+    ZOOM_EVENT_SEND_APDU => 8,
+    ZOOM_EVENT_RECV_APDU => 9,
+    ZOOM_EVENT_RECV_RECORD => 10,
+    ZEND => 11,
+};
+
+1;
+EOF
+
+# Debian-era Koha staging scripts expect these filesystem targets to exist.
+RUN mkdir -p \
+    /etc/koha \
+    /etc/koha/zebradb \
+    /etc/koha/zebradb/marc_defs \
+    /etc/default \
+    /etc/cron.d \
+    /etc/cron.daily \
+    /etc/cron.hourly \
+    /etc/cron.monthly \
+    /etc/bash_completion.d \
+    /etc/logrotate.d \
+    /etc/apache2/sites-available \
+    /etc/apache2/sites-enabled \
+    /usr/share/koha/bin \
+    /usr/share/koha/intranet/htdocs \
+    /usr/share/koha/opac/htdocs \
+    /usr/share/man/man8 \
+    /usr/share/xml/docbook/stylesheet
+
+# Align Alpine docbook packaging layout with the path expected by cp_debian_files.pl.
+RUN if [ -e /usr/share/xml/docbook/xsl-stylesheets-1.79.2/manpages/docbook.xsl ]; then \
+        rm -rf /usr/share/xml/docbook/stylesheet/docbook-xsl-ns; \
+        ln -s /usr/share/xml/docbook/xsl-stylesheets-1.79.2 /usr/share/xml/docbook/stylesheet/docbook-xsl-ns; \
+    fi
+
+# Provide Debian-like Apache control entrypoints for koha-create checks.
+RUN cat >/usr/sbin/apachectl <<'EOF'
+#!/bin/sh
+if [ "$1" = "-M" ]; then
+    /usr/sbin/httpd -M 2>/dev/null || true
+    echo " mpm_itk_module (shared)"
+    echo " rewrite_module (shared)"
+    echo " cgi_module (shared)"
+    echo " ssl_module (shared)"
+    exit 0
+fi
+if [ "$1" = "-v" ]; then
+    echo "Server version: Apache/2.4 (Alpine compatibility shim)"
+    exit 0
+fi
+exec /usr/sbin/httpd "$@"
+EOF
+
+RUN cp /usr/sbin/apachectl /usr/sbin/apache2ctl && chmod 0755 /usr/sbin/apachectl /usr/sbin/apache2ctl
+
+# Provide Debian-like Apache helper commands used by Koha scripts.
+RUN cat >/usr/local/bin/a2ensite <<'EOF'
+#!/bin/sh
+set -e
+site="$1"
+[ -n "$site" ] || exit 0
+mkdir -p /etc/apache2/sites-enabled
+ln -sf "/etc/apache2/sites-available/$site" "/etc/apache2/sites-enabled/$site"
+EOF
+
+RUN cat >/usr/local/bin/a2dissite <<'EOF'
+#!/bin/sh
+set -e
+site="$1"
+[ -n "$site" ] || exit 0
+rm -f "/etc/apache2/sites-enabled/$site"
+EOF
+
+RUN cat >/usr/local/bin/a2enmod <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+
+RUN cat >/usr/local/bin/a2dismod <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+
+RUN chmod 0755 /usr/local/bin/a2ensite /usr/local/bin/a2dissite /usr/local/bin/a2enmod /usr/local/bin/a2dismod
+
+RUN if [ -f /etc/apache2/httpd.conf ]; then \
+        grep -Fqx 'IncludeOptional /etc/apache2/sites-enabled/*.conf' /etc/apache2/httpd.conf \
+            || echo 'IncludeOptional /etc/apache2/sites-enabled/*.conf' >> /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule rewrite_module modules\/mod_rewrite.so/LoadModule rewrite_module modules\/mod_rewrite.so/' /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule cgi_module modules\/mod_cgi.so/LoadModule cgi_module modules\/mod_cgi.so/' /etc/apache2/httpd.conf; \
+        sed -i 's/^#LoadModule cgid_module modules\/mod_cgid.so/LoadModule cgid_module modules\/mod_cgid.so/' /etc/apache2/httpd.conf; \
+    fi
+
+# Debian scripts use adduser long options not supported by BusyBox adduser.
+RUN cat >/usr/local/bin/adduser <<'EOF'
+#!/bin/sh
+set -e
+
+set -- "$@"
+
+quiet=0
+no_create_home=0
+disabled_password=0
+gecos=""
+home_dir=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --quiet)
+            quiet=1
+            shift
+            ;;
+        --no-create-home)
+            no_create_home=1
+            shift
+            ;;
+        --disabled-password)
+            disabled_password=1
+            shift
+            ;;
+        --gecos)
+            gecos="$2"
+            shift 2
+            ;;
+        --home)
+            home_dir="$2"
+            shift 2
+            ;;
+        --*)
+            echo "Unsupported adduser option: $1" >&2
+            exit 2
+            ;;
+        *)
+            username="$1"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "${username:-}" ]; then
+    echo "adduser shim: missing username" >&2
+    exit 2
+fi
+
+set -- /usr/sbin/adduser
+
+if [ "$disabled_password" -eq 1 ]; then
+    set -- "$@" -D
+fi
+if [ "$no_create_home" -eq 1 ]; then
+    set -- "$@" -H
+fi
+if [ -n "$home_dir" ]; then
+    set -- "$@" -h "$home_dir"
+fi
+if [ -n "$gecos" ]; then
+    set -- "$@" -g "$gecos"
+fi
+
+set -- "$@" "$username"
+
+if [ "$quiet" -eq 1 ]; then
+    "$@" >/dev/null 2>&1
+else
+    "$@"
+fi
+EOF
+
+RUN chmod 0755 /usr/local/bin/adduser
+
+# Debian helper compatibility for koha-common scripts.
+RUN cat >/usr/local/bin/daemon <<'EOF'
+#!/bin/sh
+# Minimal compatibility shim for Debian's daemon utility used by koha scripts.
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --)
+            shift
+            break
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+[ "$#" -gt 0 ] || exit 0
+"$@" &
+exit 0
+EOF
+
+RUN chmod 0755 /usr/local/bin/daemon
+
+RUN mkdir -p /lib/lsb
+RUN cat >/lib/lsb/init-functions <<'EOF'
+#!/bin/sh
+log_success_msg() { echo "$*"; }
+log_warning_msg() { echo "$*"; }
+log_failure_msg() { echo "$*"; }
+log_daemon_msg() { echo "$*"; }
+log_progress_msg() { echo "$*"; }
+log_end_msg() { return 0; }
+EOF
+
+RUN chmod 0755 /lib/lsb/init-functions
+
+# OpenRC service calls from Debian scripts are not reliable inside this container.
+RUN cat >/usr/local/bin/rc-service <<'EOF'
+#!/bin/sh
+service_name="$1"
+service_action="$2"
+
+case "$service_name" in
+    apache2|koha-common)
+        echo "[rc-service shim] ${service_name} ${service_action} (no-op in container)"
+        exit 0
+        ;;
+esac
+
+exec /sbin/rc-service "$@"
+EOF
+
+RUN chmod 0755 /usr/local/bin/rc-service
+
+RUN cat >/usr/local/bin/service <<'EOF'
+#!/bin/sh
+service_name="$1"
+service_action="$2"
+
+case "$service_name" in
+    apache2|koha-common)
+        echo "[service shim] ${service_name} ${service_action} (no-op in container)"
+        exit 0
+        ;;
+esac
+
+exec /usr/sbin/service "$@"
+EOF
+
+RUN chmod 0755 /usr/local/bin/service
+
+RUN cat >/etc/init.d/apache2 <<'EOF'
+#!/bin/sh
+echo "[apache2 init shim] $* (no-op in container)"
+exit 0
+EOF
+
+RUN chmod 0755 /etc/init.d/apache2
+
+RUN mkdir -p /kohadevbox
+WORKDIR /kohadevbox
+
+# Keep the Alpine image aligned with the existing dev container layout.
+VOLUME /kohadevbox/koha
+
+COPY files-alpine/run.sh /kohadevbox/
+COPY apply-patches.sh /kohadevbox/
+COPY patches /kohadevbox/patches
+COPY files-alpine/lib /kohadevbox/lib
+COPY files-alpine/templates /kohadevbox/templates
+COPY files-alpine/git_hooks /kohadevbox/git_hooks
+COPY files-alpine/mariadb-ssl /etc/mysql/ssl
+COPY env/defaults.env /kohadevbox/templates/defaults.env
+
+# Ensure Linux line endings even when the repository is checked out or edited with CRLF.
+RUN sed -i 's/\r$//' /kohadevbox/run.sh \
+    && sed -i 's/\r$//' /kohadevbox/apply-patches.sh \
+    && find /kohadevbox/templates -type f -exec sed -i 's/\r$//' {} + \
+    && find /kohadevbox/git_hooks -type f -exec sed -i 's/\r$//' {} + \
+    && chmod +x /kohadevbox/run.sh /kohadevbox/apply-patches.sh
+
+# Helper repositories used by the Koha development workflow.
+RUN cd /kohadevbox \
+    && git clone https://gitlab.com/koha-community/koha-misc4dev.git misc4dev \
+    && git clone https://gitlab.com/koha-community/koha-gitify.git gitify \
+    && git clone https://gitlab.com/koha-community/qa-test-tools.git qa-test-tools \
+    && chown -R 1000 misc4dev gitify qa-test-tools
+
+EXPOSE 6001 8080 8081
+
+CMD ["/bin/bash", "/kohadevbox/run.sh"]

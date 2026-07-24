@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KOHA_DIR="${ROOT_DIR}/koha"
+KOHA_DIR="${KOHA_PATCH_TARGET_DIR:-${ROOT_DIR}/koha}"
 PATCH_GLOB=("${ROOT_DIR}"/patches/*.patch)
 
 if [[ ! -d "${KOHA_DIR}" ]]; then
@@ -10,10 +10,16 @@ if [[ ! -d "${KOHA_DIR}" ]]; then
   exit 1
 fi
 
+if git -C "${KOHA_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -C "${KOHA_DIR}" config --global --add safe.directory "${KOHA_DIR}" >/dev/null 2>&1 || true
+fi
+
 if [[ ! -e "${PATCH_GLOB[0]}" ]]; then
   echo "No patch files found in ${ROOT_DIR}/patches" >&2
   exit 0
 fi
+
+echo "Applying patches from ${ROOT_DIR}/patches to ${KOHA_DIR}"
 
 for patch in "${PATCH_GLOB[@]}"; do
   patch_name="$(basename "${patch}")"
@@ -30,4 +36,4 @@ for patch in "${PATCH_GLOB[@]}"; do
 done
 
 echo "Done. Current Koha changes:"
-git -C "${KOHA_DIR}" status --short
+git -C "${KOHA_DIR}" status --short 2>/dev/null || true

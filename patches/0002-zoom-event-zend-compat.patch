@@ -1,0 +1,52 @@
+diff --git a/C4/AuthoritiesMarc.pm b/C4/AuthoritiesMarc.pm
+index 8866539..2b0311d 100644
+--- a/C4/AuthoritiesMarc.pm
++++ b/C4/AuthoritiesMarc.pm
+@@ -258,7 +258,8 @@ sub SearchAuthorities {
+ 
+     while ( ( $i = ZOOM::event( \@oAuth ) ) != 0 ) {
+         my $ev = $oAuth[ $i - 1 ]->last_event();
+-        last if $ev == ZOOM::Event::ZEND;
++        # ZOOM::Event::ZEND evaluates to 11; avoid bareword under strict subs.
++        last if $ev == 11;
+     }
+     my ( $error, $errmsg, $addinfo, $diagset ) = $oAuth[0]->error_x();
+     if ($error) {
+diff --git a/C4/Breeding.pm b/C4/Breeding.pm
+index bdabd88..6ce4db8 100644
+--- a/C4/Breeding.pm
++++ b/C4/Breeding.pm
+@@ -161,7 +161,8 @@ sub Z3950Search {
+         my $event;
+         while ( ( $k = ZOOM::event( \@oConnection ) ) != 0 ) {
+             $event = $oConnection[ $k - 1 ]->last_event();
+-            last if $event == ZOOM::Event::ZEND;
++            # ZOOM::Event::ZEND evaluates to 11; avoid bareword under strict subs.
++            last if $event == 11;
+         }
+ 
+         if ( $k != 0 ) {
+@@ -577,7 +578,8 @@ sub Z3950SearchAuth {
+         my $event;
+         while ( ( $k = ZOOM::event( \@oConnection ) ) != 0 ) {
+             $event = $oConnection[ $k - 1 ]->last_event();
+-            last if $event == ZOOM::Event::ZEND;
++            # ZOOM::Event::ZEND evaluates to 11; avoid bareword under strict subs.
++            last if $event == 11;
+         }
+ 
+         if ( $k != 0 ) {
+diff --git a/C4/Search.pm b/C4/Search.pm
+index c786307..dca1783 100644
+--- a/C4/Search.pm
++++ b/C4/Search.pm
+@@ -2344,7 +2344,8 @@ sub _ZOOM_event_loop {
+     my ( $zconns, $results, $callback ) = @_;
+     while ( ( my $i = ZOOM::event($zconns) ) != 0 ) {
+         my $ev = $zconns->[ $i - 1 ]->last_event();
+-        if ( $ev == ZOOM::Event::ZEND ) {
++        # ZOOM::Event::ZEND evaluates to 11; avoid bareword under strict subs.
++        if ( $ev == 11 ) {
+             next unless $results->[ $i - 1 ];
+             my $size = $results->[ $i - 1 ]->size();
+             if ( $size > 0 ) {
