@@ -107,7 +107,7 @@ Complete guide covering:
 3. RUNTIME PHASE (Container startup)
    └─ Docker compose mounts certificates into MariaDB container
       └─ MariaDB loads SSL configuration from:
-         - /etc/mysql/ssl/ca-cert.pem
+         - /etc/mysql/ssl/ca-cert.pem—
          - /etc/mysql/ssl/server-cert.pem
          - /etc/mysql/ssl/server-key.pem
       └─ All connections encrypted with TLS
@@ -139,7 +139,7 @@ Complete guide covering:
 8. **Architecture** — System design and SSL/TLS flow
 9. **Troubleshooting** — Common issues and solutions
 10. **Development Workflow** — For contributing developers
-11. **Production Deployment** — Pre-deployment checklist and steps
+11. **Production Deployment** — Pre-deployment ch—ecklist and steps
 12. **Support & Documentation** — Resources and links
 
 ## Key Features of New Setup
